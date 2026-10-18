@@ -210,6 +210,24 @@ when the answer isn't in its prompt.
     JARVIS still uses local SQLite. Unifying memory is part of Phase B.
   - The laptop has two GitHub accounts. The push remote is
     `https://GaneshPawar2004@github.com/...`, and pushing to main auto-deploys.
+- **Phase B, laptop agent:** done and tested end to end against a local cloud.
+  - Pairing: `POST /api/pair {password, name}` returns a device token (sha256 stored in the
+    `devices` table). The laptop keeps it in `data/cloud_device.bin`, DPAPI-encrypted.
+    `main.py --pair` asks for the password with getpass and never stores it.
+  - The agent is `interfaces/agent.py` (`main.py --agent`, option 6 in jarvis.bat;
+    `--agent-install` and `--agent-uninstall` manage a Task Scheduler AtLogOn task under
+    `\JARVIS\`). It connects to `wss://…/agent` with `Authorization: Bearer`, which browsers
+    can't send. It sends `hello` with FunctionDeclarations for `local_tools() - cloud_tools()`,
+    runs `call` messages in threads, and relays `confirm` to the cloud, where it goes to the
+    chat UI. Logs go to `data/agent.log`, and it reconnects with backoff up to 60 s.
+  - Cloud: `cloud/agents.py` (Agents registry and remote proxies). `Brain.set_tools(tools,
+    context, handlers)` swaps tools when the laptop comes or goes, and `Brain.note()`
+    injects a status notice. The persona has a "live status overrides earlier messages"
+    line, which fixed the model believing the laptop was still offline.
+    `/api/stats` returns `laptop_online`.
+  - Shared memory: `config.DATABASE_URL` falls back to `NEON_DB_URL`, so laptop JARVIS now
+    uses Neon. `main.py --migrate-memory` copied the old SQLite data (8 messages and 5
+    summaries).
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

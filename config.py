@@ -28,8 +28,11 @@ MAX_TOOL_CALLS_PER_TURN = 25  # phone tasks take many small steps
 
 # Cloud servers run on UTC; JARVIS always works in the user's local time.
 TIMEZONE = ZoneInfo(os.getenv("JARVIS_TIMEZONE", "Asia/Kolkata"))
-# Set on the cloud server (Neon Postgres). Empty = local SQLite in data/history.db.
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+# Neon Postgres, shared by the cloud server and the laptop (the laptop's .env calls it
+# NEON_DB_URL). Empty = local SQLite in data/history.db.
+DATABASE_URL = (os.getenv("DATABASE_URL") or os.getenv("NEON_DB_URL") or "").strip().strip("'\"")
+# The cloud JARVIS the laptop agent connects to.
+CLOUD_URL = os.getenv("JARVIS_CLOUD_URL", "https://jarvis-cloud-5azx.onrender.com").rstrip("/")
 
 
 def now() -> datetime:

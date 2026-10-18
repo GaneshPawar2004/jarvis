@@ -45,6 +45,11 @@ Behaviour:
 
 Current date and time: {now}
 
+Where you are running, live right now (devices connect and disconnect during a conversation;
+this always overrides anything said earlier, so never assume a device is still offline or
+online because of an earlier message, just use the tools you have now):
+You are J.A.R.V.I.S., {context}.
+
 What you remember about the user:
 {facts}
 
@@ -69,15 +74,27 @@ class Brain:
         context: str = LAPTOP_CONTEXT,
     ):
         llm.client()  # fail fast if the API key is missing
-        self.tool_list = tools if tools is not None else local_tools()
-        self.tools = {fn.__name__: fn for fn in self.tool_list}
-        self.context = context
+        self.set_tools(tools if tools is not None else local_tools(), context)
         self.history: list[types.Content] = []
         self.on_tool = on_tool or (lambda name, args: None)
         self.active_model = config.MODELS[0]
         self.session = history.new_session_id()
         for old in history.unsummarized_sessions(exclude=self.session):
             self.summarize(old)  # sessions that ended without a clean exit
+
+    def set_tools(self, tools: list, context: str, handlers: dict | None = None) -> None:
+        """Change what JARVIS can do, e.g. when the laptop agent connects to the cloud.
+        tools may mix Python functions and types.Tool declarations; handlers maps each
+        declared-only tool name to the function that runs it (such as a remote proxy)."""
+        self.tool_list = tools
+        self.tools = {fn.__name__: fn for fn in tools if callable(fn)} | (handlers or {})
+        self.context = context
+
+    def note(self, text: str) -> None:
+        """Add a system notice to the conversation, so the model doesn't go by stale turns."""
+        notice = f"[System notice, not from the user: {text}]"
+        self.history.append(types.Content(role="user", parts=[types.Part(text=notice)]))
+        self.history.append(types.Content(role="model", parts=[types.Part(text="Noted.")]))
 
     def _config(self) -> types.GenerateContentConfig:
         facts = memory.all_facts()
