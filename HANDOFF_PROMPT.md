@@ -199,8 +199,17 @@ when the answer isn't in its prompt.
     `requirements-cloud.txt`. The database is Neon free Postgres, because Render's free
     Postgres is deleted after 30 days.
   - Tested against local Postgres (pgserver): auth (13 checks), chat, and a hard-kill
-    restart where facts and the summary persisted. The Render MCP was disconnected, so the
-    user deploys with a Blueprint.
+    restart where facts and the summary persisted.
+  - **Deployed and live** at https://jarvis-cloud-5azx.onrender.com from GitHub
+    `GaneshPawar2004/jarvis`, branch main, through the Render Blueprint "jarvis". It is on
+    the free plan and sleeps after about 15 minutes. The first deploy failed because
+    `JARVIS_PASSWORD` was too short; the user fixed it.
+  - External checks passed: health, redirect to login, 401/403 without a session, fake
+    origin blocked, HTTP→HTTPS, and security headers.
+  - In the laptop `.env`, the Neon URL is named `NEON_DB_URL`, not `DATABASE_URL`, so laptop
+    JARVIS still uses local SQLite. Unifying memory is part of Phase B.
+  - The laptop has two GitHub accounts. The push remote is
+    `https://GaneshPawar2004@github.com/...`, and pushing to main auto-deploys.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.
