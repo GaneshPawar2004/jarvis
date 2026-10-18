@@ -25,8 +25,8 @@ from core import db, history, memory
 from core.brain import Brain
 from interfaces.hud import auth
 from interfaces.hud import login as pages
-from cloud.agents import Agent, Agents, create_device, device_name
-from interfaces.hud.session import serve_chat
+from cloud.agents import Agents, create_device, device_name
+from interfaces.hud.session import ask_brain, serve_chat
 from skills import cloud_tools
 
 STATIC = Path(__file__).resolve().parent.parent / "interfaces" / "hud" / "static"
@@ -36,18 +36,26 @@ SESSION_DAYS = 30
 GLOBAL_FAILURE_LIMIT = 10  # wrong passwords from anywhere within the window lock all logins
 GLOBAL_WINDOW = 15 * 60
 
-CLOUD_CONTEXT = (
-    "now running on a cloud server so the user can reach you from their phone even when "
-    "their laptop is off. Right now the user's laptop is OFFLINE: you can chat, search the "
-    "web, check the time and use your memory, but you cannot control the laptop, or the "
-    "phone (which is reached through the laptop); if asked, say the laptop is offline"
-)
-LAPTOP_CONTEXT = (
-    "now running on a cloud server. The user's Windows laptop is ONLINE and connected, so "
-    "you can control it with the laptop tools, and the user's Android phone through the "
-    "phone_* tools (they run via the laptop). The user is probably chatting from their "
-    "phone and may not be sitting at the laptop"
-)
+def _context(laptop: bool, phone: bool) -> str:
+    """Where JARVIS is running and which devices it can reach right now."""
+    parts = ["now running on a cloud server, so the user can reach you even when their laptop "
+             "is off; they are probably talking to you from their phone"]
+    if phone:
+        parts.append("The JARVIS app on the user's Android phone is CONNECTED: the phone_* tools act "
+                     "directly on the phone (no laptop needed). The user may be looking at the "
+                     "phone screen while you work")
+    if laptop:
+        parts.append("The user's Windows laptop is ONLINE: you can control it with the laptop tools"
+                     + ("" if phone else ", and the phone through the laptop with the phone_* tools "
+                        "(the phone must be on the same Wi-Fi as the laptop)"))
+    else:
+        parts.append("The user's laptop is OFFLINE, so laptop tools are unavailable; if asked, say so")
+    if not laptop and not phone:
+        parts.append("The phone can't be controlled right now either (no JARVIS app or laptop connected)")
+    return ". ".join(parts)
+
+
+CLOUD_CONTEXT = _context(laptop=False, phone=False)
 
 PASSWORD = os.getenv("JARVIS_PASSWORD", "")
 ALLOWED_HOSTS = {
@@ -61,22 +69,31 @@ brain_lock = asyncio.Lock()
 _global_failures: list[float] = []
 
 
-async def _laptop_changed(agent: Agent | None) -> None:
-    """Give the brain the laptop's tools while it's connected, and take them away after."""
+async def _devices_changed(event: str) -> None:
+    """Give the brain the tools of whichever devices are connected right now. When the
+    phone app is connected, its phone_* tools replace the laptop's ADB-based ones."""
     async with brain_lock:
-        if agent is None:
-            brain.set_tools(cloud_tools(), CLOUD_CONTEXT)
-            brain.note("The laptop just went offline.")
-            return
-        brain.set_tools(
-            cloud_tools() + [types.Tool(function_declarations=agent.declarations)],
-            LAPTOP_CONTEXT,
-            handlers={d.name: agents.proxy(d.name) for d in agent.declarations},
-        )
-        brain.note("The laptop just came online; its tools are available again.")
+        tools, handlers, declared = cloud_tools(), {}, []
+        for kind in ("phone", "laptop"):
+            agent = agents.devices.get(kind)
+            if agent is None:
+                continue
+            fresh = [d for d in agent.declarations if d.name not in handlers
+                     # with the phone app connected, the laptop's ADB phone tools would be a confusing duplicate
+                     and not (kind == "laptop" and agents.phone and d.name.startswith("phone_"))]
+            declared += fresh
+            handlers |= {d.name: agents.proxy(d.name, kind) for d in fresh}
+        if declared:
+            tools = tools + [types.Tool(function_declarations=declared)]
+        brain.set_tools(tools, _context(agents.laptop is not None, agents.phone is not None), handlers)
+        brain.note(event)
 
 
-agents = Agents(on_change=_laptop_changed)
+async def _app_chat(agent, text: str, on_tool, ask_user) -> dict:
+    return await ask_brain(brain, brain_lock, text, on_tool, ask_user)
+
+
+agents = Agents(on_change=_devices_changed, on_chat=_app_chat)
 
 
 @asynccontextmanager
@@ -206,7 +223,7 @@ async def pair(request: Request):
 @app.get("/api/stats")
 def stats() -> dict:
     # no laptop gauges in cloud mode; the page hides that panel
-    return {"cloud": True, "laptop_online": agents.laptop is not None}
+    return {"cloud": True, "laptop_online": agents.laptop is not None, "phone_online": agents.phone is not None}
 
 
 @app.get("/api/memory")

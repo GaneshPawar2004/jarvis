@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="accessibility_label">JARVIS phone control</string>
+    <string name="accessibility_description">Lets JARVIS read the screen and tap, type and scroll for you when you ask it to (for example: open LinkedIn and search for jobs). JARVIS only acts on your requests, and asks before submitting, sending, paying or deleting anything.</string>
+</resources>

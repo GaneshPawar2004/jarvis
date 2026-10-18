@@ -11,6 +11,21 @@ from core.brain import Brain
 CONFIRM_TIMEOUT = 120  # seconds to answer an Allow/Deny prompt before it counts as Deny
 
 
+async def ask_brain(brain: Brain, brain_lock: asyncio.Lock, text: str, on_tool, ask_user) -> dict:
+    """One question to the shared brain, with this chat's tool display and Allow/Deny
+    prompts. Returns a "reply" or "error" event."""
+    async with brain_lock:
+        brain.on_tool = on_tool
+        confirm.set_handler(ask_user)
+        try:
+            reply = await run_in_threadpool(brain.ask, text)
+            return {"type": "reply", "text": reply, "model": brain.active_model}
+        except Exception as e:
+            return {"type": "error", "text": str(e)}
+        finally:
+            confirm.set_handler(None)
+
+
 async def serve_chat(ws: WebSocket, brain: Brain, brain_lock: asyncio.Lock) -> None:
     """Run an accepted websocket until the user disconnects."""
     loop = asyncio.get_running_loop()
@@ -57,18 +72,9 @@ async def serve_chat(ws: WebSocket, brain: Brain, brain_lock: asyncio.Lock) -> N
             text = str(next_message.result().get("text", "")).strip()
             if not text:
                 continue
-            async with brain_lock:
-                await ws.send_json({"type": "thinking"})
-                brain.on_tool = on_tool
-                confirm.set_handler(ask_user)
-                try:
-                    reply = await run_in_threadpool(brain.ask, text)
-                    event = {"type": "reply", "text": reply, "model": brain.active_model}
-                except Exception as e:
-                    event = {"type": "error", "text": str(e)}
-                finally:
-                    confirm.set_handler(None)
-                await ws.send_json(event)  # raises WebSocketDisconnect if the user left mid-task
+            await ws.send_json({"type": "thinking"})
+            event = await ask_brain(brain, brain_lock, text, on_tool, ask_user)
+            await ws.send_json(event)  # raises WebSocketDisconnect if the user left mid-task
     except WebSocketDisconnect:
         pass
     finally:

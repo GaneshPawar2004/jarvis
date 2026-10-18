@@ -228,6 +228,36 @@ when the answer isn't in its prompt.
   - Shared memory: `config.DATABASE_URL` falls back to `NEON_DB_URL`, so laptop JARVIS now
     uses Neon. `main.py --migrate-memory` copied the old SQLite data (8 messages and 5
     summaries).
+- **Phase C, JARVIS Android app:** built (`android/`, Kotlin, no AndroidX, OkHttp only; AGP
+  8.7.3, Gradle 8.11.1 wrapper, Kotlin 2.1.0, compile/target SDK 35, minSdk 28). Build with
+  `JAVA_HOME=C:\Program Files\Java\jdk-20` and `android\gradlew assembleDebug`; the APK is
+  copied to `D:\jarvis\JARVIS.apk`, which is gitignored. Not yet installed on the phone,
+  which wasn't nearby.
+  - `CloudLink.kt` is one OkHttp websocket to `/agent` with `{"type":"hello","kind":"phone"}`.
+    It carries chat (`chat` → `chat_reply`/`chat_error`), tool `call`s and `confirm`s.
+  - Pairing is `POST /api/pair`; the token is AES-GCM-encrypted with an Android Keystore key
+    (`Prefs.kt`).
+  - `LinkService` is a foreground service (specialUse) that keeps the link alive while other
+    apps are on screen.
+  - `JarvisAccessibilityService` reads the screen as numbered elements and taps, types
+    (`ACTION_SET_TEXT`, so Unicode works), presses keys, scrolls and opens apps (activity
+    starts from the accessibility service context are background-launch exempt).
+  - `PhoneTools.kt` has the same `phone_*` names as the laptop's ADB tools. There is no
+    `look_at_screen` and no vault yet; the vault is Phase D.
+  - `ConfirmCenter` shows a heads-up notification with Allow/Deny and a 120 s timeout. RISKY
+    taps are gated locally, and server-relayed confirms use the same notification.
+  - `MainActivity` handles pairing and the chat UI, `SpeechRecognizer` (en-IN), TTS
+    (`Locale.UK`), and the ASSIST intent, so the app can be the default assistant.
+  - Cloud: `cloud/agents.py` now supports several devices (laptop and phone), chat over the
+    agent socket, and `Agent.request()` for calls and confirms. `_devices_changed` gives the
+    phone app's `phone_*` tools priority and drops ALL of the laptop's `phone_*` tools while
+    the app is connected. `_context()` describes the live devices. `/api/stats` has
+    `phone_online`.
+  - `core/llm.py`: when every model returns 429 (free tier is 15 RPM per model), it waits
+    the advertised retry delay once (if 60 s or less), then raises `QuotaExhausted` with a
+    friendly message.
+  - Tested with a simulated app (same JSON as the Kotlin app) plus the real laptop agent:
+    phone chat, phone-tool routing, laptop tools, and the Allow/Deny relay to the app.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

@@ -73,7 +73,7 @@ async def _session(url: str, token: str, tools: dict, declarations: list[dict]) 
     ws_url = url.replace("https://", "wss://").replace("http://", "ws://") + "/agent"
     async with websockets.connect(ws_url, additional_headers={"Authorization": f"Bearer {token}"},
                                   open_timeout=120, max_size=8 * 1024 * 1024) as ws:
-        await ws.send(json.dumps({"type": "hello", "tools": declarations}))
+        await ws.send(json.dumps({"type": "hello", "kind": "laptop", "tools": declarations}))
         log.info("Connected to %s with %d laptop tools", url, len(declarations))
         loop = asyncio.get_running_loop()
         answers: dict[str, asyncio.Future] = {}

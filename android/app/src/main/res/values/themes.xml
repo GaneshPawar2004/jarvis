@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#03070D</color>
+    <color name="panel">#0B1C2A</color>
+    <color name="cyan">#3FD9FF</color>
+    <color name="text">#CFEFFF</color>
+    <color name="muted">#6C93A8</color>
+    <color name="amber">#FFB84D</color>
+
+    <style name="Theme.Jarvis" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:colorAccent">@color/cyan</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+</resources>
