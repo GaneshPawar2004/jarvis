@@ -134,7 +134,9 @@ async def guard(request: Request, call_next):
     response.headers.update({
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "no-referrer",
+        # not "no-referrer": that makes browsers send "Origin: null" on the login form,
+        # which the origin check (rightly) rejects
+        "Referrer-Policy": "same-origin",
         "Strict-Transport-Security": "max-age=31536000",
     })
     return response
@@ -188,7 +190,12 @@ async def pair(request: Request):
     """A device (the laptop agent) trades the password, once, for its own device key."""
     if not auth.same_origin(request.headers.get("origin"), request.headers.get("host")):
         return JSONResponse({"error": "bad origin"}, status_code=403)
-    body = await request.json()
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("not an object")
+    except Exception:
+        return JSONResponse({"error": "expected JSON with password and name"}, status_code=400)
     problem = await _check_password(request, str(body.get("password", "")))
     if problem:
         return JSONResponse({"error": problem}, status_code=401)
