@@ -45,7 +45,8 @@ def _connect_pg():
     import psycopg
 
     if _pg is None or _pg.closed:
-        _pg = psycopg.connect(config.DATABASE_URL, autocommit=True, connect_timeout=15)
+        # prepare_threshold=None: Neon's pooled endpoint (PgBouncer) can't keep prepared statements
+        _pg = psycopg.connect(config.DATABASE_URL, autocommit=True, connect_timeout=15, prepare_threshold=None)
     return _pg
 
 
