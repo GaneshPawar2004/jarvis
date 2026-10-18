@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>J.A.R.V.I.S. HUD</title>
+  <meta name="theme-color" content="#03070d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+
+  <header>
+    <div class="brand">
+      <h1>J.A.R.V.I.S.</h1>
+      <p>Just A Rather Very Intelligent System</p>
+    </div>
+    <div class="status"><span class="dot" id="link-dot"></span><span id="link-text">CONNECTING</span><span class="sep">·</span><span id="model">Gemini</span></div>
+    <div class="clock"><div id="time">--:--</div><div id="date">—</div></div>
+  </header>
+
+  <main>
+    <section class="panel systems">
+      <h2>Systems</h2>
+      <div class="gauges">
+        <div class="gauge" id="g-cpu"><svg viewBox="0 0 80 80"><circle class="track" cx="40" cy="40" r="34"/><circle class="value" cx="40" cy="40" r="34"/></svg><div class="g-text"><b>--</b><span>CPU</span></div></div>
+        <div class="gauge" id="g-memory"><svg viewBox="0 0 80 80"><circle class="track" cx="40" cy="40" r="34"/><circle class="value" cx="40" cy="40" r="34"/></svg><div class="g-text"><b>--</b><span>Memory</span></div></div>
+        <div class="gauge" id="g-disk"><svg viewBox="0 0 80 80"><circle class="track" cx="40" cy="40" r="34"/><circle class="value" cx="40" cy="40" r="34"/></svg><div class="g-text"><b>--</b><span>Disk</span></div></div>
+        <div class="gauge" id="g-battery"><svg viewBox="0 0 80 80"><circle class="track" cx="40" cy="40" r="34"/><circle class="value" cx="40" cy="40" r="34"/></svg><div class="g-text"><b>--</b><span>Power</span></div></div>
+      </div>
+      <dl class="readouts">
+        <div><dt>RAM</dt><dd id="r-ram">—</dd></div>
+        <div><dt>Disk free</dt><dd id="r-disk">—</dd></div>
+        <div><dt>Net ↓</dt><dd id="r-down">—</dd></div>
+        <div><dt>Net ↑</dt><dd id="r-up">—</dd></div>
+        <div><dt>Uptime</dt><dd id="r-uptime">—</dd></div>
+      </dl>
+      <h3>Top processes</h3>
+      <ul class="procs" id="procs"></ul>
+    </section>
+
+    <section class="core">
+      <div class="reactor idle" id="reactor">
+        <svg viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="ring r1" cx="100" cy="100" r="92"/>
+          <circle class="ring r2" cx="100" cy="100" r="78"/>
+          <circle class="ring r3" cx="100" cy="100" r="62"/>
+          <g class="segments">
+            <rect x="96" y="22" width="8" height="18" rx="2"/><rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(36 100 100)"/>
+            <rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(72 100 100)"/><rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(108 100 100)"/>
+            <rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(144 100 100)"/><rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(180 100 100)"/>
+            <rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(216 100 100)"/><rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(252 100 100)"/>
+            <rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(288 100 100)"/><rect x="96" y="22" width="8" height="18" rx="2" transform="rotate(324 100 100)"/>
+          </g>
+          <circle class="inner" cx="100" cy="100" r="40"/>
+          <circle class="glow" cx="100" cy="100" r="26"/>
+        </svg>
+        <div class="state" id="state">Standing by</div>
+      </div>
+
+      <div class="chat panel">
+        <div class="log" id="log" aria-live="polite"></div>
+        <form id="form" autocomplete="off">
+          <button type="button" id="mic" class="icon" title="Speak (Chrome / Edge)" aria-label="Speak">
+            <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12z"/></svg>
+          </button>
+          <input id="input" placeholder="Talk to JARVIS…" aria-label="Message">
+          <button type="submit" class="send">Send</button>
+          <label class="speak-toggle" title="Speak replies aloud"><input type="checkbox" id="speak"> Voice</label>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel memory">
+      <h2>Memory</h2>
+      <ul class="facts" id="facts"></ul>
+      <h3>Recent logs</h3>
+      <ul class="summaries" id="summaries"></ul>
+      <h3>Activity</h3>
+      <ul class="activity" id="activity"><li class="muted">No actions yet.</li></ul>
+    </section>
+  </main>
+
+  <dialog id="confirm" aria-labelledby="confirm-text">
+    <h2>Permission needed</h2>
+    <p id="confirm-text"></p>
+    <div class="actions">
+      <button type="button" id="deny" class="send">Deny</button>
+      <button type="button" id="allow" class="send allow">Allow</button>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

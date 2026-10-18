@@ -1,0 +1,22 @@
+# Render Blueprint for the JARVIS cloud brain (free plan, Singapore).
+# In Render: New → Blueprint → pick this repo. Render will ask for the three secret values.
+services:
+  - type: web
+    name: jarvis-cloud
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements-cloud.txt
+    startCommand: uvicorn cloud.server:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: JARVIS_TIMEZONE
+        value: Asia/Kolkata
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JARVIS_PASSWORD
+        sync: false
