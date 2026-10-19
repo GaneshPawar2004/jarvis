@@ -16,6 +16,7 @@ if __name__ == "__main__":
     mode.add_argument("--agent", action="store_true", help="run the laptop agent for cloud JARVIS")
     mode.add_argument("--agent-install", action="store_true", help="start the laptop agent at every login")
     mode.add_argument("--agent-uninstall", action="store_true", help="stop starting the agent at login")
+    mode.add_argument("--resume", metavar="PDF", help="upload your resume PDF to cloud JARVIS")
     mode.add_argument("--migrate-memory", action="store_true", help="copy local memory to the shared Neon memory")
     parser.add_argument("--lan", action="store_true", help="with --hud: also allow phones on the same Wi-Fi")
     args = parser.parse_args()
@@ -42,6 +43,10 @@ if __name__ == "__main__":
             agent.install()
         else:
             agent.uninstall()
+    elif args.resume:
+        from interfaces import agent
+
+        agent.upload_resume(args.resume)
     elif args.migrate_memory:
         from core import migrate
 

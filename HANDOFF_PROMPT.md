@@ -285,6 +285,25 @@ when the answer isn't in its prompt.
     when MainActivity isn't visible.
   - The phone's default recognizer is Google's TTS recognition service, and the Google app
     is installed.
+- **Phase F, job hunting:** built. Tested in the cloud against a made-up sample resume; not
+  yet tried by the user.
+  - `core/resume.py`: Gemini reads the PDF (`Part.from_bytes` application/pdf, JSON mime) into
+    a profile containing summary_for_jarvis, skills, experience, education,
+    suggested_roles and so on. It is stored in the `resumes` table. `summary()` goes into
+    the persona as "The user's resume, in brief", and `vault_suggestions()` maps fields to
+    vault keys.
+  - `POST /api/resume` takes raw PDF bytes and an X-Filename header, authenticated by a
+    device Bearer token or a browser session. It returns summary, suggested_roles and
+    vault_suggestions; the app lets the user tick which suggestions to save locally.
+    Laptop: `main.py --resume file.pdf`.
+  - `skills/jobs.py` (cloud tools): `get_resume_profile` (without email or phone),
+    `find_jobs` (ddgs, past month, keeping only real posts: naukri `/job-listings-` and
+    linkedin `/jobs/view/`), `shortlist_job`, `list_jobs` and `update_job_status`, stored in
+    the `jobs` table.
+  - Persona: rank by fit, apply only on request and one at a time using `phone_open_url`
+    plus the vault, confirm before Submit, never mass-apply.
+  - App: "📄 UPLOAD RESUME (PDF)" in MY DETAILS (ACTION_OPEN_DOCUMENT), the result dialog
+    with vault checkboxes, and a new `phone_open_url` tool.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

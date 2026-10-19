@@ -79,6 +79,22 @@ object CloudLink {
         }
     }
 
+    /** Send a resume PDF; cloud JARVIS reads it into memory and suggests vault details. */
+    fun uploadResume(context: Context, pdf: ByteArray, filename: String): JSONObject {
+        val token = Prefs.token(context) ?: throw IllegalStateException("Connect to JARVIS first.")
+        val request = Request.Builder().url(Prefs.url(context) + "/api/resume")
+            .header("Authorization", "Bearer $token")
+            .header("X-Filename", filename)
+            .post(pdf.toRequestBody("application/pdf".toMediaType()))
+            .build()
+        val slow = http.newBuilder().readTimeout(180, TimeUnit.SECONDS).build()
+        slow.newCall(request).execute().use { response ->
+            val json = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+            if (!response.isSuccessful) throw IllegalStateException(json.optString("error", "Upload failed (${response.code})"))
+            return json
+        }
+    }
+
     fun start(context: Context) {
         app = context.applicationContext
         wanted = true

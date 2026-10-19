@@ -9,6 +9,7 @@ import socket
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import websockets
 from google.genai import types
@@ -54,6 +55,31 @@ def pair() -> None:
         return
     _save_credentials(url, token)
     print("Paired. Start the agent with: jarvis.bat → 6, or install it to start at login.")
+
+
+def upload_resume(path: str) -> None:
+    """Send a resume PDF to cloud JARVIS, which reads it into its memory."""
+    credentials = _load_credentials()
+    if credentials is None:
+        print("Pair this laptop first: python main.py --pair")
+        return
+    file = Path(path).expanduser()
+    if not file.exists():
+        print(f"File not found: {file}")
+        return
+    request = urllib.request.Request(
+        credentials["url"] + "/api/resume", data=file.read_bytes(),
+        headers={"Authorization": f"Bearer {credentials['token']}", "Content-Type": "application/pdf",
+                 "X-Filename": file.name},
+    )
+    print("Uploading and reading your resume (can take up to a minute)…")
+    try:
+        result = json.loads(urllib.request.urlopen(request, timeout=180).read())
+    except urllib.error.HTTPError as e:
+        print("Upload failed:", json.loads(e.read() or b"{}").get("error", e.reason))
+        return
+    print("\nJARVIS now knows:\n" + result["summary"])
+    print("\nSuggested roles:", ", ".join(result["suggested_roles"]))
 
 
 def _declarations(tools: list) -> list[dict]:

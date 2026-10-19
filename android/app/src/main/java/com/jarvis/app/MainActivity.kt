@@ -210,6 +210,77 @@ class MainActivity : Activity(), CloudLink.Listener {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VAULT_UNLOCK && resultCode == RESULT_OK) showVault()
+        if (requestCode == PICK_RESUME && resultCode == RESULT_OK) data?.data?.let { uploadResume(it) }
+    }
+
+    // ---------------- resume ----------------
+
+    private fun pickResume() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/pdf"),
+            PICK_RESUME,
+        )
+    }
+
+    private fun uploadResume(uri: android.net.Uri) {
+        val waiting = AlertDialog.Builder(this)
+            .setMessage("JARVIS is reading your resume… (up to a minute)")
+            .setCancelable(false)
+            .show()
+        thread {
+            try {
+                var name = "resume.pdf"
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (column >= 0 && cursor.moveToFirst()) name = cursor.getString(column)
+                }
+                val bytes = contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                val result = CloudLink.uploadResume(this, bytes, name)
+                runOnUiThread { waiting.dismiss(); offerVaultDetails(result) }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    waiting.dismiss()
+                    AlertDialog.Builder(this).setMessage(e.message ?: "Upload failed.").setPositiveButton("OK", null).show()
+                }
+            }
+        }
+    }
+
+    /** Show what JARVIS learned, and let the user pick which details to save on the phone. */
+    private fun offerVaultDetails(result: org.json.JSONObject) {
+        val saved = Vault.load(this)
+        val suggestions = result.optJSONObject("vault_suggestions") ?: org.json.JSONObject()
+        val form = column().apply { setPadding(dp(20), dp(8), dp(20), 0) }
+        form.addView(label(result.optString("summary"), textColor))
+        val roles = result.optJSONArray("suggested_roles")
+        if (roles != null && roles.length() > 0) {
+            form.addView(label("Roles that suit you: " + (0 until roles.length()).joinToString { roles.getString(it) }, cyan), spaced())
+        }
+        val boxes = mutableListOf<Pair<CheckBox, Pair<String, String>>>()
+        if (suggestions.length() > 0) {
+            form.addView(label("Add these to My details?", cyan), spaced())
+            suggestions.keys().forEach { key ->
+                val value = suggestions.getString(key)
+                val labelText = Vault.TEMPLATE[key]?.first ?: key
+                val box = CheckBox(this).apply {
+                    text = "$labelText: $value"
+                    setTextColor(textColor)
+                    isChecked = saved[key]?.value.isNullOrBlank() // new details ticked; existing ones left as they are
+                }
+                form.addView(box)
+                boxes += box to (key to value)
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("JARVIS read your resume")
+            .setView(ScrollView(this).apply { addView(form) })
+            .setPositiveButton("Save ticked") { _, _ ->
+                boxes.filter { it.first.isChecked }.forEach { (_, kv) -> Vault.set(this, kv.first, kv.second) }
+                showVault()
+            }
+            .setNegativeButton("Skip", null)
+            .show()
     }
 
     private fun showVault() {
@@ -220,6 +291,7 @@ class MainActivity : Activity(), CloudLink.Listener {
         header.addView(button("DONE") { showChat() })
         root.addView(header)
         root.addView(label("Encrypted on this phone. JARVIS's AI never sees these values; it only knows which ones exist. Tap a field to edit.", muted), spaced())
+        root.addView(button("📄 UPLOAD RESUME (PDF)") { pickResume() }, spaced())
 
         val list = column()
         val saved = Vault.load(this)
@@ -341,5 +413,6 @@ class MainActivity : Activity(), CloudLink.Listener {
 
     companion object {
         private const val VAULT_UNLOCK = 3
+        private const val PICK_RESUME = 4
     }
 }

@@ -34,6 +34,24 @@ CREATE TABLE IF NOT EXISTS devices (
     name TEXT NOT NULL,
     created TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS resumes (
+    id {pk},
+    filename TEXT NOT NULL,
+    uploaded TEXT NOT NULL,
+    data {blob} NOT NULL,
+    profile TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS jobs (
+    id {pk},
+    title TEXT NOT NULL,
+    company TEXT NOT NULL,
+    location TEXT NOT NULL,
+    url TEXT NOT NULL,
+    source TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL,
+    saved TEXT NOT NULL
+);
 """
 
 _lock = threading.Lock()

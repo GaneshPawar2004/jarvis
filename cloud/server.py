@@ -21,7 +21,7 @@ from google.genai import types
 from starlette.concurrency import run_in_threadpool
 
 import config
-from core import db, history, memory
+from core import db, history, memory, resume
 from core.brain import Brain
 from interfaces.hud import auth
 from interfaces.hud import login as pages
@@ -30,7 +30,9 @@ from interfaces.hud.session import ask_brain, serve_chat
 from skills import cloud_tools
 
 STATIC = Path(__file__).resolve().parent.parent / "interfaces" / "hud" / "static"
-PUBLIC_PATHS = {"/login", "/healthz", "/api/pair", "/static/manifest.json", "/static/icon-192.png", "/static/icon-512.png"}
+# /api/resume checks its own auth: a device key (phone app / laptop) or a browser session.
+PUBLIC_PATHS = {"/login", "/healthz", "/api/pair", "/api/resume",
+                "/static/manifest.json", "/static/icon-192.png", "/static/icon-512.png"}
 COOKIE = "jarvis_cloud_session"
 SESSION_DAYS = 30
 GLOBAL_FAILURE_LIMIT = 10  # wrong passwords from anywhere within the window lock all logins
@@ -218,6 +220,33 @@ async def pair(request: Request):
         return JSONResponse({"error": problem}, status_code=401)
     token = await run_in_threadpool(create_device, str(body.get("name", "laptop")))
     return {"token": token}
+
+
+@app.post("/api/resume")
+async def upload_resume(request: Request):
+    """Upload a resume PDF (raw bytes; X-Filename header). JARVIS reads it into its memory
+    and returns details the phone app can offer to save into its vault."""
+    header = request.headers.get("authorization", "")
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else None
+    by_device = token and await run_in_threadpool(device_name, token)
+    by_browser = auth.same_origin(request.headers.get("origin"), request.headers.get("host")) and \
+        await run_in_threadpool(_valid_session, request.cookies.get(COOKIE))
+    if not (by_device or by_browser):
+        return JSONResponse({"error": "login required"}, status_code=401)
+    pdf = await request.body()
+    if len(pdf) > resume.MAX_BYTES:
+        return JSONResponse({"error": "The resume is too large (max 8 MB)."}, status_code=413)
+    try:
+        profile = await run_in_threadpool(resume.save, request.headers.get("x-filename", "resume.pdf"), pdf)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    async with brain_lock:
+        brain.note("The user just uploaded their resume; its summary is now in your memory.")
+    return {
+        "summary": profile.get("summary_for_jarvis", ""),
+        "suggested_roles": profile.get("suggested_roles") or [],
+        "vault_suggestions": resume.vault_suggestions(profile),
+    }
 
 
 @app.get("/api/stats")

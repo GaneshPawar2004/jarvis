@@ -44,6 +44,8 @@ object PhoneTools {
         tool("phone_open_app", "Open an app on the user's Android phone, by its name (e.g. \"LinkedIn\", \"WhatsApp\", \"camera\", \"settings\").",
             Triple("name", "STRING", "The app's name.")),
         tool("phone_list_apps", "List the names of the apps installed on the user's phone."),
+        tool("phone_open_url", "Open a web link on the phone, e.g. a job post. LinkedIn and Naukri links open in their apps when installed.",
+            Triple("url", "STRING", "The full https:// link.")),
         tool("phone_read_screen", "Read what is on the phone's screen as a numbered list of elements (buttons, text, input fields). " +
             "Use the numbers with phone_tap and phone_type. Read again after each action to see the result."),
         tool("phone_tap", "Tap an element on the phone screen. Buttons like Submit, Send, Pay, Apply or Delete ask the user's permission first.",
@@ -86,6 +88,7 @@ object PhoneTools {
     private fun runTool(context: Context, tool: String, args: JSONObject): Any = when (tool) {
         "phone_open_app" -> openApp(context, args.getString("name"))
         "phone_list_apps" -> JSONArray(launchable(context).keys.sorted())
+        "phone_open_url" -> openUrl(context, args.getString("url"))
         "phone_read_screen" -> {
             val saved = Vault.load(context).values  // the AI never sees the user's saved details
             JSONObject().put("app", service().currentApp())
@@ -139,6 +142,14 @@ object PhoneTools {
         (JarvisAccessibilityService.instance ?: context).startActivity(intent)
         Thread.sleep(1500)
         return "Opened $name on the phone."
+    }
+
+    private fun openUrl(context: Context, url: String): String {
+        if (!url.startsWith("https://") && !url.startsWith("http://")) return "Only web links (https://…) can be opened."
+        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        (JarvisAccessibilityService.instance ?: context).startActivity(intent)
+        Thread.sleep(2500)
+        return "Opened the link on the phone."
     }
 
     private fun tap(context: Context, number: Int): String {

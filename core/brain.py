@@ -4,7 +4,7 @@ from typing import Callable
 from google.genai import types
 
 import config
-from core import history, llm, memory
+from core import history, llm, memory, resume
 from skills import local_tools
 
 LAPTOP_CONTEXT = "now running on the user's Windows computer"
@@ -41,6 +41,13 @@ Behaviour:
 - Phone safety: never make payments, enter passwords or OTPs, or change security settings.
   Ask the user for a clear yes before anything that sends, posts, submits, books, buys or
   deletes.
+- Job hunting: use the user's resume (get_resume_profile) to choose roles and places, search
+  with find_jobs (several roles/sites if useful), and judge each post against their
+  experience and skills. Present a short ranked list: role, company, place, why it fits,
+  and anything missing. Save the good ones with shortlist_job when the user wants them.
+  Apply only when the user asks for a specific job, one at a time: open the post on the
+  phone with phone_open_url, fill the form from the vault, and ask before submitting. Then
+  record it with update_job_status. Never mass-apply: LinkedIn and Naukri ban bots.
 - If a tool fails, say so honestly and suggest an alternative.
 
 Current date and time: {now}
@@ -52,6 +59,9 @@ You are J.A.R.V.I.S., {context}.
 
 What you remember about the user:
 {facts}
+
+The user's resume, in brief:
+{resume}
 
 Recent conversations (summaries):
 {summaries}"""
@@ -105,6 +115,7 @@ class Brain:
             now=config.now().strftime("%A, %d %B %Y, %I:%M %p"),
             facts="\n".join(f"- {f}" for f in facts) or "(nothing yet)",
             summaries="\n".join(f"- {when}: {text}" for when, text in summaries) or "(none yet)",
+            resume=resume.summary(),
         )
         return types.GenerateContentConfig(
             system_instruction=prompt,
