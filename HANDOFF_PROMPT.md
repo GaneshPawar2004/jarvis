@@ -273,6 +273,18 @@ when the answer isn't in its prompt.
     edit, clear and custom fields.
   - No cloud change was needed: the phone's tools come first in `_devices_changed`, so the
     phone's vault tools shadow the laptop's.
+- **Talk from any screen:** done and confirmed working on the user's phone.
+  - The floating 🎤 is a `TYPE_ACCESSIBILITY_OVERLAY` bubble drawn by the accessibility
+    service. It is draggable, snaps to the edge, is toggled with `Prefs.floatingMic`, and
+    hides while `PhoneTools.run` executes.
+  - `TalkTileService` provides a Quick Settings tile.
+  - `ListenActivity` is a translucent bottom panel with `taskAffinity=""`, so the current
+    app stays on screen. It also handles the ASSIST intent. It uses `SpeechRecognizer` and
+    falls back to the `RecognizerIntent` Google pop-up on errors.
+  - `CloudLink` queues chats while reconnecting and shows replies as a HIGH notification
+    when MainActivity isn't visible.
+  - The phone's default recognizer is Google's TTS recognition service, and the Google app
+    is installed.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.
