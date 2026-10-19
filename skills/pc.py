@@ -93,10 +93,10 @@ def type_text(text: str) -> str:
     Args:
         text: The text to type. Use \\n for a new line.
     """
-    time.sleep(1.0)  # let a just-opened app take focus
-    if text.isascii():
-        pyautogui.write(text, interval=0.01)
-    else:  # pyautogui can't type non-ASCII characters; paste them instead
+    time.sleep(0.5)  # let a just-opened app take focus
+    if text.isascii() and len(text) <= 20:
+        pyautogui.write(text, interval=0.005)
+    else:  # long or non-English text: paste it in one go (instant), then restore the clipboard
         previous = pyperclip.paste()
         pyperclip.copy(text)
         pyautogui.hotkey("ctrl", "v")

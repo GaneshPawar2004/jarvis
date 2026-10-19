@@ -339,6 +339,22 @@ when the answer isn't in its prompt.
   - Tested: migration, dedupe, the secret filter, relevance (32 memories down to 3-4), the
     writer correcting Pune to Mumbai and adding the sister as a person, and the app
     protocol including the brain using an edited memory.
+- **Speed (brain step 3):** done.
+  - Gemini's Google Search grounding returns 429 on this free key, even when plain calls
+    work, so it needs a paid key. DuckDuckGo stays: `web_search(query, fresh)` with a
+    1-hour cache, and `fresh` uses `ddgs.news` with timelimit "w".
+  - New `get_weather(place)` uses Open-Meteo (free, no key; geocoding and forecast),
+    cached for 15 minutes.
+  - `find_jobs` runs its 4 queries in a ThreadPoolExecutor: 5.3 s against 20.8 s
+    sequentially.
+  - `Brain._run_tools` runs several calls in parallel when all are in `PARALLEL_SAFE`.
+  - App: every action tool returns `screen_after` (redacted), and the new `phone_actions`
+    (an ARRAY of steps: tap, type, fill, press, scroll) does several steps in one call. The
+    persona says not to re-read after actions and to batch steps. A LinkedIn search went
+    from about 12 tool calls to 2.
+  - Laptop `type_text` pastes text longer than 20 characters, and the pause is 0.5 s.
+  - The keep-awake pinger is still a user action (cron-job.org on /healthz every 10
+    minutes).
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

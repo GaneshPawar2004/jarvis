@@ -1,4 +1,5 @@
 """The brain: talks to Gemini and runs tools in a loop until it has a final answer."""
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from google.genai import types
@@ -29,8 +30,10 @@ Behaviour:
 - Before typing or pressing keys, make sure the right app is open and focused, otherwise
   the keystrokes land in the wrong window.
 - "Phone" means the user's Android phone: use the phone_* tools, never the computer tools.
-  To operate an app: phone_read_screen, then phone_tap / phone_type using element numbers,
-  then read the screen again to check the result before the next step.
+  To operate an app: phone_read_screen once, then act using element numbers. Every action
+  returns screen_after, so do NOT call phone_read_screen again after it. Be fast: when you
+  know several steps (tap a box, type, press enter; fill several fields), send them in ONE
+  phone_actions call. If phone_actions isn't available, use phone_tap / phone_type.
 - Filling forms: call vault_list_fields, phone_read_screen, then phone_fill_field for each
   input that matches a saved detail (choose the key by the field's label). Use phone_type
   only for things not in the vault. Scroll to reach fields lower down. Afterwards, read the
@@ -74,6 +77,12 @@ anything to follow up on. If it was only trivial small talk or quick lookups (ti
 greetings), reply with exactly SKIP.
 
 {transcript}"""
+
+# Tools that only look things up, so several can safely run at once.
+PARALLEL_SAFE = {
+    "web_search", "get_weather", "find_jobs", "get_resume_profile", "list_jobs", "recall_conversations",
+    "get_datetime", "system_status", "phone_status", "vault_list_fields", "find_files",
+}
 
 MAX_HISTORY = 40  # contents kept between turns
 
@@ -149,6 +158,14 @@ class Brain:
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
+    def _run_tools(self, calls: list[types.FunctionCall]) -> list[dict]:
+        """Run the tools Gemini asked for. Read-only lookups (searches, memory, status) run
+        at the same time; anything that acts on a screen runs in order."""
+        if len(calls) > 1 and all(c.name in PARALLEL_SAFE for c in calls):
+            with ThreadPoolExecutor(max_workers=len(calls)) as pool:
+                return list(pool.map(self._run_tool, calls))
+        return [self._run_tool(c) for c in calls]
+
     def ask(self, text: str) -> str:
         try:  # only the memories that matter for this message (Memory 2.0)
             self._memories = memory.for_prompt(text)
@@ -172,8 +189,8 @@ class Brain:
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_function_response(name=c.name, response=self._run_tool(c))
-                        for c in calls
+                        types.Part.from_function_response(name=c.name, response=result)
+                        for c, result in zip(calls, self._run_tools(calls))
                     ],
                 )
             )

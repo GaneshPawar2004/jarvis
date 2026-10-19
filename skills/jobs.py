@@ -1,6 +1,7 @@
 """Job-hunting skills: search Naukri and LinkedIn for real job posts, match them to the user's
 resume, and keep a shortlist / application tracker."""
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from ddgs import DDGS
 
@@ -32,19 +33,24 @@ def find_jobs(role: str, location: str, sources: str = "naukri,linkedin") -> lis
         location: City or "Remote", e.g. "Pune".
         sources: Which sites, comma-separated: "naukri", "linkedin" or "naukri,linkedin".
     """
+    searches = [(name, query) for name in [s.strip().lower() for s in sources.split(",") if s.strip().lower() in SOURCES]
+                for query in (f"{role} {location} {SOURCES[name][0]}", f"{role} jobs in {location} {SOURCES[name][0]}")]
+
+    def run(query: str) -> list:
+        try:
+            return DDGS().text(query, max_results=15, timelimit="m")
+        except Exception:
+            return []
+
+    with ThreadPoolExecutor(max_workers=4) as pool:  # all sites and phrasings at once
+        batches = list(pool.map(run, [q for _, q in searches]))
     found, seen = [], set()
-    for name in [s.strip().lower() for s in sources.split(",") if s.strip().lower() in SOURCES]:
-        site, is_job_post = SOURCES[name]
-        for query in (f"{role} {location} {site}", f"{role} jobs in {location} {site}"):
-            try:
-                results = DDGS().text(query, max_results=15, timelimit="m")
-            except Exception:
-                continue
-            for r in results:
-                url = r["href"].split("?")[0]
-                if is_job_post.search(url) and url not in seen:
-                    seen.add(url)
-                    found.append({"source": name, "title": r["title"][:140], "url": url, "snippet": r["body"][:300]})
+    for (name, _), results in zip(searches, batches):
+        for r in results:
+            url = r["href"].split("?")[0]
+            if SOURCES[name][1].search(url) and url not in seen:
+                seen.add(url)
+                found.append({"source": name, "title": r["title"][:140], "url": url, "snippet": r["body"][:300]})
     if not found:
         return f"No recent {role} posts found in {location}. Try a related role or nearby city."
     return found[:25]

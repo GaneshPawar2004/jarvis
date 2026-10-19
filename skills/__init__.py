@@ -13,6 +13,7 @@ def cloud_tools() -> list:
     return [
         system.get_datetime,
         web.web_search,
+        web.get_weather,
         memory.remember,
         memory.forget,
         memory.recall_conversations,

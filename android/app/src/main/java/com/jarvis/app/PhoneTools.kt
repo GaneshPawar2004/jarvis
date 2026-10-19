@@ -47,7 +47,7 @@ object PhoneTools {
         tool("phone_open_url", "Open a web link on the phone, e.g. a job post. LinkedIn and Naukri links open in their apps when installed.",
             Triple("url", "STRING", "The full https:// link.")),
         tool("phone_read_screen", "Read what is on the phone's screen as a numbered list of elements (buttons, text, input fields). " +
-            "Use the numbers with phone_tap and phone_type. Read again after each action to see the result."),
+            "Every phone action already returns the screen afterwards (screen_after), so you only need this at the start."),
         tool("phone_tap", "Tap an element on the phone screen. Buttons like Submit, Send, Pay, Apply or Delete ask the user's permission first.",
             Triple("element_number", "INTEGER", "The element's number from the latest phone_read_screen.")),
         tool("phone_type", "Type text into an input field on the phone (any language).",
@@ -59,6 +59,20 @@ object PhoneTools {
         tool("phone_scroll", "Scroll the phone screen: \"down\" (see content further down), \"up\", \"left\" or \"right\".",
             Triple("direction", "STRING", "Which way.")),
         tool("phone_status", "Get the phone's battery level, charging state and the app currently on screen."),
+        JSONObject()
+            .put("name", "phone_actions")
+            .put("description", "Do several phone steps in ONE call, e.g. tap the search box, type a query, press enter. " +
+                "Much faster than separate calls. Element numbers refer to the latest screen you saw. Stops at the first step " +
+                "that fails or that the user doesn't allow. Returns each step's result and the screen afterwards.")
+            .put("parameters", JSONObject().put("type", "OBJECT").put("required", JSONArray(listOf("steps"))).put("properties",
+                JSONObject().put("steps", JSONObject().put("type", "ARRAY").put("description", "The steps, in order.").put("items",
+                    JSONObject().put("type", "OBJECT").put("required", JSONArray(listOf("action"))).put("properties", JSONObject()
+                        .put("action", JSONObject().put("type", "STRING").put("description", "tap, type, fill, press or scroll"))
+                        .put("element_number", JSONObject().put("type", "INTEGER").put("description", "For tap, type (0 = selected field) and fill"))
+                        .put("text", JSONObject().put("type", "STRING").put("description", "For type"))
+                        .put("field_key", JSONObject().put("type", "STRING").put("description", "For fill: a vault key such as email"))
+                        .put("key", JSONObject().put("type", "STRING").put("description", "For press: back, home, enter..."))
+                        .put("direction", JSONObject().put("type", "STRING").put("description", "For scroll: up, down, left, right"))))))),
         tool("vault_list_fields", "List the user's saved personal details (name, email, address, education, work, " +
             "ID numbers...) by key and label. Values are hidden; fill them into forms with phone_fill_field."),
         tool("phone_fill_field", "Fill an input field on the phone with one of the user's saved details. The real value " +
@@ -85,15 +99,60 @@ object PhoneTools {
         }
     }
 
-    private fun runTool(context: Context, tool: String, args: JSONObject): Any = when (tool) {
+    /** Actions that change the screen: their result includes the screen afterwards, so the
+     *  AI doesn't need a separate read (that halves the steps of a phone task). */
+    private val ACTIONS = setOf("phone_open_app", "phone_open_url", "phone_tap", "phone_type", "phone_press",
+        "phone_scroll", "phone_fill_field", "phone_actions")
+
+    private fun runTool(context: Context, tool: String, args: JSONObject): Any {
+        val result = runOne(context, tool, args)
+        if (tool !in ACTIONS || JarvisAccessibilityService.instance == null) return result
+        val out = if (result is JSONObject) result else JSONObject().put("result", result)
+        return try {
+            out.put("screen_after", screen(context))
+        } catch (e: Exception) {
+            out.put("screen_after", "Couldn't read the screen (it may be protected).")
+        }
+    }
+
+    private fun screen(context: Context): JSONObject {
+        val saved = Vault.load(context).values  // the AI never sees the user's saved details
+        return JSONObject().put("app", service().currentApp())
+            .put("elements", JSONArray(service().readScreen().map { Vault.redact(it, saved) }))
+    }
+
+    /** phone_actions: several steps without re-reading the screen in between. */
+    private fun actions(context: Context, steps: JSONArray): JSONObject {
+        val results = JSONArray()
+        for (i in 0 until steps.length()) {
+            val step = steps.getJSONObject(i)
+            val message = try {
+                when (step.optString("action").trim().lowercase()) {
+                    "tap" -> tap(context, step.getInt("element_number"))
+                    "type" -> { service().type(step.getString("text"), step.optInt("element_number", 0)); "Typed." }
+                    "fill" -> fillField(context, step.getInt("element_number"), step.getString("field_key"))
+                    "press" -> press(context, step.getString("key").trim().lowercase())
+                    "scroll" -> { service().scroll(step.getString("direction").trim().lowercase()); "Scrolled." }
+                    else -> "Unknown action '${step.optString("action")}'."
+                }
+            } catch (e: Exception) {
+                "Failed: ${e.message}"
+            }
+            results.put("${i + 1}. $message")
+            if (message.startsWith("Failed") || message.startsWith("Unknown") || message.contains("did NOT allow")) {
+                results.put("Stopped here.")
+                break
+            }
+        }
+        return JSONObject().put("steps", results)
+    }
+
+    private fun runOne(context: Context, tool: String, args: JSONObject): Any = when (tool) {
         "phone_open_app" -> openApp(context, args.getString("name"))
         "phone_list_apps" -> JSONArray(launchable(context).keys.sorted())
         "phone_open_url" -> openUrl(context, args.getString("url"))
-        "phone_read_screen" -> {
-            val saved = Vault.load(context).values  // the AI never sees the user's saved details
-            JSONObject().put("app", service().currentApp())
-                .put("elements", JSONArray(service().readScreen().map { Vault.redact(it, saved) }))
-        }
+        "phone_read_screen" -> screen(context)
+        "phone_actions" -> actions(context, args.getJSONArray("steps"))
         "phone_tap" -> tap(context, args.getInt("element_number"))
         "phone_type" -> {
             service().type(args.getString("text"), args.optInt("element_number", 0))
