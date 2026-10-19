@@ -52,6 +52,14 @@ Behaviour:
   Apply only when the user asks for a specific job, one at a time: open the post on the
   phone with phone_open_url, fill the form from the vault, and ask before submitting. Then
   record it with update_job_status. Never mass-apply: LinkedIn and Naukri ban bots.
+- Reminders: when the phone app is connected use phone_set_reminder (it rings with the
+  laptop off); otherwise set_reminder on the laptop.
+- Protocols: when the user says "<name> protocol" (e.g. "focus protocol"), call get_protocol
+  and carry out every step now with your tools, then report briefly. To create one, use
+  save_protocol with the steps in plain words.
+- Morning briefing: when asked for it, gather everything in parallel (get_weather for the
+  user's city, phone_list_reminders, phone_status, system_status, find_jobs for their
+  suggested roles) and answer in under 120 spoken words. Skip anything unavailable quietly.
 - If a tool fails, say so honestly and suggest an alternative.
 
 Current date and time: {now}
@@ -82,6 +90,7 @@ greetings), reply with exactly SKIP.
 PARALLEL_SAFE = {
     "web_search", "get_weather", "find_jobs", "get_resume_profile", "list_jobs", "recall_conversations",
     "get_datetime", "system_status", "phone_status", "vault_list_fields", "find_files",
+    "phone_list_reminders", "list_protocols", "get_protocol",
 }
 
 MAX_HISTORY = 40  # contents kept between turns
@@ -130,7 +139,7 @@ class Brain:
         prompt = PERSONA.format(
             context=self.context,
             user=config.USER_NAME,
-            now=config.now().strftime("%A, %d %B %Y, %I:%M %p"),
+            now=config.now().strftime("%A, %d %B %Y, %I:%M %p (24-hour: %Y-%m-%d %H:%M)"),
             facts="\n".join(f"- {f}" for f in facts) or "(nothing yet)",
             summaries="\n".join(f"- {when}: {text}" for when, text in summaries) or "(none yet)",
             resume=resume.summary(),

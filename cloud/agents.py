@@ -171,6 +171,10 @@ class Agents:
                     asyncio.create_task(relay_confirm(message))
                 elif kind_of == "chat":
                     asyncio.create_task(self._chat(agent, message))
+                elif kind_of == "event":  # e.g. the laptop's battery is low: tell the phone
+                    if self.phone is not None:
+                        await self.phone.ws.send_json({"type": "notify", "title": message.get("title", "JARVIS"),
+                                                       "text": message.get("text", "")})
                 elif kind_of == "memory":  # the app's Memory screen
                     asyncio.create_task(self._memory(agent, message))
                 elif kind_of == "reset":

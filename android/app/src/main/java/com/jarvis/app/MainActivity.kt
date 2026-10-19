@@ -43,6 +43,12 @@ class MainActivity : Activity(), CloudLink.Listener {
         }
         Speaker.init(this)
         if (Prefs.token(this) == null) showPairing() else showChat()
+        if (intent?.action == Reminders.ACTION_BRIEFING) Reminders.briefNow(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == Reminders.ACTION_BRIEFING) Reminders.briefNow(this)
     }
 
     override fun onPause() {
@@ -286,6 +292,29 @@ class MainActivity : Activity(), CloudLink.Listener {
             Prefs.setFloatingMic(this, on)
             JarvisAccessibilityService.instance?.let { if (on) it.showBubble() else it.removeBubble() }
         })
+        // Morning briefing: a daily time, or off.
+        val briefingAt = Reminders.briefingTime(this)
+        val briefingButton = Ui.softButton(this, if (briefingAt == null) "Morning briefing: off" else "Morning briefing: $briefingAt") {}
+        briefingButton.setOnClickListener {
+            val (h, m) = (briefingAt ?: "07:30").split(":").map { it.toInt() }
+            android.app.TimePickerDialog(this, { _, hour, minute ->
+                val time = "%02d:%02d".format(hour, minute)
+                Reminders.setBriefing(this, time)
+                briefingButton.text = "Morning briefing: $time"
+            }, h, m, false).apply {
+                setButton(android.content.DialogInterface.BUTTON_NEUTRAL, "Turn off") { _, _ ->
+                    Reminders.setBriefing(this@MainActivity, null)
+                    briefingButton.text = "Morning briefing: off"
+                }
+            }.show()
+        }
+        form.addView(briefingButton, Ui.matchWrap(10, this))
+        form.addView(Ui.softButton(this, "Brief me now") { settingsDialog?.dismiss(); Reminders.briefNow(this) }, Ui.matchWrap(8, this))
+        if (!Reminders.canBeExact(this) && Build.VERSION.SDK_INT >= 31) {
+            form.addView(Ui.softButton(this, "Allow on-time reminders") {
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, android.net.Uri.parse("package:$packageName")))
+            }, Ui.matchWrap(8, this))
+        }
         val controlOn = JarvisAccessibilityService.instance != null
         form.addView(Ui.text(this, if (controlOn) "Phone control: on" else "Phone control: off", 15f,
             if (controlOn) Ui.green else Ui.warn), Ui.matchWrap(10, this))

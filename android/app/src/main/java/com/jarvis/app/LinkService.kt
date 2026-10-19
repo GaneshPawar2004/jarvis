@@ -38,10 +38,30 @@ class LinkService : Service() {
         }
         Speaker.init(this)
         CloudLink.start(this)
+        Reminders.rescheduleAll(this)
+        if (batteryWatch == null) {
+            batteryWatch = object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) {
+                    val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) * 100 /
+                        intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+                    val charging = intent.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0
+                    if (charging || level > 20) lowWarned = false
+                    else if (level in 1..15 && !lowWarned) {
+                        lowWarned = true
+                        Reminders.notify(context, 6000, "Phone battery low", "Your phone battery is at $level%, sir. Time to charge.")
+                    }
+                }
+            }
+            registerReceiver(batteryWatch, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }
         return START_STICKY
     }
 
+    private var batteryWatch: android.content.BroadcastReceiver? = null
+    private var lowWarned = false
+
     override fun onDestroy() {
+        batteryWatch?.let { unregisterReceiver(it) }
         CloudLink.stop()
         super.onDestroy()
     }

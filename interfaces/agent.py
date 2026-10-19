@@ -130,14 +130,38 @@ async def _session(url: str, token: str, tools: dict, declarations: list[dict]) 
                 reply = {"error": f"{type(e).__name__}: {e}"}
             await ws.send(json.dumps({"type": "result", "id": message["id"], **reply}, default=str))
 
-        async for raw in ws:
-            message = json.loads(raw)
-            if message.get("type") == "call":
-                asyncio.create_task(run_call(message))
-            elif message.get("type") == "confirm_reply":
-                future = answers.get(message.get("id"))
-                if future and not future.done():
-                    future.set_result(bool(message.get("approved")))
+        async def watch_battery() -> None:
+            """JARVIS speaks first: warn on the phone when the laptop battery runs low."""
+            import psutil
+
+            warned = False
+            while True:
+                battery = psutil.sensors_battery()
+                if battery and not battery.power_plugged and battery.percent <= 20 and not warned:
+                    warned = True
+                    await ws.send(json.dumps({"type": "event", "title": "Laptop battery low",
+                                              "text": f"Your laptop battery is at {round(battery.percent)}%, sir. Plug it in soon."}))
+                elif battery and (battery.power_plugged or battery.percent > 30):
+                    warned = False
+                await asyncio.sleep(120)
+
+        watcher = asyncio.create_task(watch_battery())
+        try:
+            await read_messages(ws, answers, run_call)
+        finally:
+            watcher.cancel()
+
+
+async def read_messages(ws, answers: dict, run_call) -> None:
+    """Handle the cloud's requests: run laptop tools, deliver Allow/Deny answers."""
+    async for raw in ws:
+        message = json.loads(raw)
+        if message.get("type") == "call":
+            asyncio.create_task(run_call(message))
+        elif message.get("type") == "confirm_reply":
+            future = answers.get(message.get("id"))
+            if future and not future.done():
+                future.set_result(bool(message.get("approved")))
 
 
 async def _run_forever() -> None:

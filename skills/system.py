@@ -43,7 +43,7 @@ START_MENU_DIRS = [
 
 def get_datetime() -> str:
     """Get the current local date, time and day of the week."""
-    return config.now().strftime("%A, %d %B %Y, %I:%M %p")
+    return config.now().strftime("%A, %d %B %Y, %I:%M %p (24-hour: %Y-%m-%d %H:%M)")
 
 
 def system_status() -> dict:

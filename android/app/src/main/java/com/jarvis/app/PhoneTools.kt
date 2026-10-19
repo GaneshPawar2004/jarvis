@@ -59,6 +59,13 @@ object PhoneTools {
         tool("phone_scroll", "Scroll the phone screen: \"down\" (see content further down), \"up\", \"left\" or \"right\".",
             Triple("direction", "STRING", "Which way.")),
         tool("phone_status", "Get the phone's battery level, charging state and the app currently on screen."),
+        tool("phone_set_reminder", "Set a reminder on the user's phone. It rings on time even with the laptop off, the app " +
+            "closed or no internet, and survives a restart. Work out the exact local date and time from the current time.",
+            Triple("message", "STRING", "What to remind the user about, e.g. \"Call mom\"."),
+            Triple("due", "STRING", "Local date and time as YYYY-MM-DD HH:MM, e.g. 2026-10-20 18:30.")),
+        tool("phone_list_reminders", "List the upcoming reminders on the user's phone."),
+        tool("phone_cancel_reminder", "Cancel a reminder on the phone.",
+            Triple("reminder_id", "INTEGER", "The reminder's id from phone_list_reminders.")),
         JSONObject()
             .put("name", "phone_actions")
             .put("description", "Do several phone steps in ONE call, e.g. tap the search box, type a query, press enter. " +
@@ -164,6 +171,15 @@ object PhoneTools {
             "Scrolled."
         }
         "phone_status" -> status(context)
+        "phone_set_reminder" -> Reminders.add(context, args.getString("message"), args.getString("due"))
+        "phone_list_reminders" -> Reminders.upcoming(context).let { items ->
+            if (items.isEmpty()) "No upcoming reminders." else JSONArray(items.map {
+                JSONObject().put("id", it.getInt("id")).put("message", it.getString("message"))
+                    .put("due", java.time.Instant.ofEpochMilli(it.getLong("due")).atZone(java.time.ZoneId.systemDefault())
+                        .toLocalDateTime().toString().replace('T', ' ').take(16))
+            })
+        }
+        "phone_cancel_reminder" -> Reminders.cancel(context, args.getInt("reminder_id"))
         "vault_list_fields" -> listFields(context)
         "phone_fill_field" -> fillField(context, args.getInt("element_number"), args.getString("field_key"))
         "vault_save_field" -> saveField(context, args.getString("key"), args.getString("value"), args.optString("label").ifBlank { null })

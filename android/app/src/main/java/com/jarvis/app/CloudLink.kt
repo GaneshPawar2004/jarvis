@@ -169,6 +169,8 @@ object CloudLink {
             }
             "tool" -> emit { it.onTool(message.optString("name")) }
             "memory_result" -> requests.remove(message.optString("id"))?.complete(message)
+            "notify" -> Reminders.notify(app, 7000 + (message.optString("text").hashCode() and 0xfff),
+                message.optString("title", "JARVIS"), message.optString("text"))
             "chat_reply" -> reply(message.optString("text"), false)
             "chat_error" -> reply(message.optString("text"), true)
         }

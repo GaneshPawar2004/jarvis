@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS protocols (
+    name TEXT PRIMARY KEY,
+    steps TEXT NOT NULL,
+    updated TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS threads (
     id TEXT PRIMARY KEY,
     updated TEXT NOT NULL,

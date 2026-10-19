@@ -355,6 +355,27 @@ when the answer isn't in its prompt.
   - Laptop `type_text` pastes text longer than 20 characters, and the pause is 0.5 s.
   - The keep-awake pinger is still a user action (cron-job.org on /healthz every 10
     minutes).
+- **Phase 2, Proactive JARVIS:** done, with no Firebase; the phone schedules its own alarms.
+  - App `Reminders.kt`: a JSON reminder store in prefs, `AlarmManager`
+    (`setExactAndAllowWhileIdle` when `canScheduleExactAlarms`, otherwise inexact),
+    `AlarmReceiver` (notification with Snooze 10 min and Done, spoken when speakReplies),
+    and `BootReceiver` to reschedule.
+  - Tools: `phone_set_reminder`, `phone_list_reminders`, `phone_cancel_reminder`.
+  - Morning briefing: a daily alarm at the time set in Settings. It starts LinkService and
+    sends `BRIEFING_PROMPT`; the reply arrives as a notification (and spoken). If the
+    service can't start from the background, a "tap to hear" notification opens
+    `ACTION_BRIEFING`. Settings also has "Brief me now" and "Allow on-time reminders"
+    (`SCHEDULE_EXACT_ALARM`).
+  - The phone battery alert (15% or below) is a receiver in LinkService.
+  - Laptop: the agent's `watch_battery` sends an `event` (20% or below, unplugged) and the
+    cloud forwards it to the phone as `notify`.
+  - Cloud: `skills/protocols.py` (save, get, list, delete) and a `protocols` table. The
+    persona covers reminder routing (phone first), running protocols and briefing
+    guidance.
+  - Bug fixed: the prompt time was 12-hour only, so "in 50 minutes" at 00:05 became 12:54.
+    The prompt and `get_datetime` now also give 24-hour time.
+  - Tested with a simulated phone and laptop: protocol save and run (laptop and phone
+    tools), the battery alert reaching the phone, and the briefing.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.
