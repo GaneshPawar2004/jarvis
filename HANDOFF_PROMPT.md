@@ -320,6 +320,25 @@ when the answer isn't in its prompt.
     hard server restart, reset, offline fallback.
   - Next: Memory 2.0 (relevant-only retrieval, a memory writer that updates facts,
     pgvector, Memory screen).
+- **Memory 2.0 (brain step 2):** done.
+  - The `memories` table holds kind (person, place, project, goal, preference, routine,
+    fact), subject, text, importance 1-5, source, timestamps and an embedding. Old `facts`
+    rows migrate automatically.
+  - `memory.for_prompt(message)`: with 30 or fewer memories, all of them; otherwise every
+    memory of importance 4 or more, plus the most relevant ones (cosine, best minus 0.06,
+    at least 0.55, up to 8). Gemini scores sit in a narrow band, hence the relative window.
+  - `memory.add` merges near-duplicates (0.88 or more) and refuses secrets (regex for
+    password, OTP, PIN, card numbers, PAN, Aadhaar).
+  - `core/memory_writer.py` runs every 6 messages in the background and at `summarize()`.
+    It makes one light Gemini JSON call (`llm.generate(light=True)` picks the cheapest model
+    first) with add, update and delete operations, keeping a cursor in the `meta` table.
+    The persona now uses `remember` only when the user explicitly asks.
+  - Device socket `{"type":"memory","action":"list|add|update|delete"}` returns
+    `memory_result`. The app has a "🧠 What JARVIS remembers" screen in Settings, behind
+    the device lock.
+  - Tested: migration, dedupe, the secret filter, relevance (32 memories down to 3-4), the
+    writer correcting Pune to Mumbai and adding the sister as a person, and the app
+    protocol including the brain using an edited memory.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

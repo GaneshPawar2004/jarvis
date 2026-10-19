@@ -1,25 +1,26 @@
-"""Memory skills: let the AI save and delete long-term facts about the user."""
+"""Memory skills: let the AI save and delete long-term memories about the user."""
 from core import history, memory
 
 
-def remember(fact: str) -> str:
-    """Save an important long-term fact about the user (name, preferences, projects, people,
-    routines) so it is remembered in future conversations.
+def remember(fact: str, kind: str = "fact", importance: int = 3) -> str:
+    """Save something the user explicitly asked you to remember. (Other lasting details
+    are saved automatically after the conversation.)
 
     Args:
-        fact: The fact to remember, written as a full sentence, e.g. "The user's birthday is 5 March."
+        fact: One short sentence about the user, e.g. "The user's birthday is 5 March."
+        kind: One of "person", "project", "preference", "place", "goal", "routine", "fact".
+        importance: 1 to 5; 5 = core identity (name, home city, job, family).
     """
-    memory.add_fact(fact)
-    return "Saved to memory."
+    return memory.add(fact, kind, importance=importance, source="asked")
 
 
 def forget(text: str) -> str:
-    """Delete saved memories that contain the given text.
+    """Delete memories the user wants forgotten or says are wrong.
 
     Args:
-        text: Words identifying the memory to delete.
+        text: Words describing the memory to delete.
     """
-    removed = memory.remove_fact(text)
+    removed = memory.forget(text)
     return f"Removed {removed} memory item(s)."
 
 

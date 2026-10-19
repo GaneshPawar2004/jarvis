@@ -32,16 +32,17 @@ def _retry_after(error: errors.APIError) -> float:
 
 
 def generate(
-    contents: list[types.Content], cfg: types.GenerateContentConfig | None = None
+    contents: list[types.Content], cfg: types.GenerateContentConfig | None = None, light: bool = False
 ) -> tuple[types.GenerateContentResponse, str]:
     """Call the first available model; returns (response, model used). If every model is
     over the free per-minute limit, waits for it to reset once before giving up."""
+    models = list(reversed(config.MODELS)) if light else config.MODELS  # light = background work: cheapest model first
     last_error = None
     waited_for_quota = False
     attempt = 0
     while attempt < 3:
         quota_waits, overloaded = [], False
-        for model in config.MODELS:
+        for model in models:
             try:
                 return client().models.generate_content(model=model, contents=contents, config=cfg), model
             except errors.APIError as e:

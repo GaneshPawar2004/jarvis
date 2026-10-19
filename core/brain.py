@@ -4,7 +4,7 @@ from typing import Callable
 from google.genai import types
 
 import config
-from core import history, llm, memory, resume
+from core import history, llm, memory, memory_writer, resume
 from skills import local_tools
 
 LAPTOP_CONTEXT = "now running on the user's Windows computer"
@@ -19,8 +19,9 @@ unless detail is asked for. Never use markdown formatting, because replies may b
 Behaviour:
 - When a request needs an action or live information, use your tools instead of guessing.
 - You may chain several tools to finish a task, then report the result briefly.
-- When the user shares a lasting personal detail (name, preferences, projects, people,
-  routines), save it with the remember tool without being asked.
+- Lasting personal details the user mentions are saved to memory automatically after the
+  conversation, so use the remember tool only when the user explicitly asks you to
+  remember something (that saves time).
 - If the user refers to something from an earlier conversation that isn't below, search
   for it with recall_conversations before saying you don't know.
 - You can see: look_through_webcam uses the camera and look_at_screen reads the screen.
@@ -57,7 +58,8 @@ this always overrides anything said earlier, so never assume a device is still o
 online because of an earlier message, just use the tools you have now):
 You are J.A.R.V.I.S., {context}.
 
-What you remember about the user:
+What you remember about the user (the memories that matter for this message; more are
+saved, and recall_conversations searches past chats):
 {facts}
 
 The user's resume, in brief:
@@ -112,7 +114,9 @@ class Brain:
         self._save()
 
     def _config(self) -> types.GenerateContentConfig:
-        facts = memory.all_facts()
+        facts = getattr(self, "_memories", None)
+        if facts is None:
+            facts = memory.for_prompt(None)
         summaries = history.recent_summaries()
         prompt = PERSONA.format(
             context=self.context,
@@ -146,6 +150,10 @@ class Brain:
             return {"error": f"{type(e).__name__}: {e}"}
 
     def ask(self, text: str) -> str:
+        try:  # only the memories that matter for this message (Memory 2.0)
+            self._memories = memory.for_prompt(text)
+        except Exception:
+            self._memories = None
         contents = self.history + [types.Content(role="user", parts=[types.Part(text=text)])]
 
         for _ in range(config.MAX_TOOL_CALLS_PER_TURN):
@@ -175,6 +183,10 @@ class Brain:
         self.history = self._trim(contents)
         self._save()
         history.log_exchange(self.session, text, reply)
+        self._unwritten = getattr(self, "_unwritten", 0) + 1
+        if self._unwritten >= memory_writer.EVERY:  # learn from the last few messages, in the background
+            self._unwritten = 0
+            memory_writer.run_in_background()
         return reply
 
     def summarize(self, session: str) -> None:
@@ -192,6 +204,7 @@ class Brain:
         except Exception:
             return  # retried on next start-up
         history.save_summary(session, "" if summary.upper().startswith("SKIP") else summary)
+        memory_writer.run()  # the conversation ended: make sure its lasting facts are saved
 
     def close(self) -> None:
         """Call when the user ends the session."""

@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS resumes (
     data {blob} NOT NULL,
     profile TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS memories (
+    id {pk},
+    kind TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    text TEXT NOT NULL,
+    importance INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    embedding {blob}
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS threads (
     id TEXT PRIMARY KEY,
     updated TEXT NOT NULL,
@@ -134,6 +149,12 @@ def execute(sql: str, params=()) -> None:
 def execute_many(sql: str, params: list) -> None:
     if params:
         _run(sql, params, fetch=False, many=True)
+
+
+def upsert_meta_sql() -> str:
+    if is_postgres():
+        return "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+    return "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"
 
 
 def upsert_thread_sql() -> str:

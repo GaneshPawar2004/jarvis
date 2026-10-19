@@ -44,6 +44,7 @@ object CloudLink {
     private var wanted = false
     private var retryDelayMs = 5_000L
     private val outbox = mutableListOf<String>() // said while reconnecting; sent once connected
+    private val requests = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CompletableFuture<JSONObject>>()
 
     @Volatile var connected = false
         private set
@@ -167,6 +168,7 @@ object CloudLink {
                 webSocket.send(JSONObject().put("type", "confirm_reply").put("id", message.getString("id")).put("approved", approved).toString())
             }
             "tool" -> emit { it.onTool(message.optString("name")) }
+            "memory_result" -> requests.remove(message.optString("id"))?.complete(message)
             "chat_reply" -> reply(message.optString("text"), false)
             "chat_error" -> reply(message.optString("text"), true)
         }
@@ -203,6 +205,20 @@ object CloudLink {
 
     private fun send(ws: WebSocket, text: String) =
         ws.send(JSONObject().put("type", "chat").put("id", UUID.randomUUID().toString()).put("text", text).toString())
+
+    /** Ask cloud JARVIS something and wait for the answer (e.g. the Memory screen's list). */
+    fun request(message: JSONObject, timeoutSeconds: Long = 60): JSONObject {
+        val ws = socket ?: throw IllegalStateException("Not connected to JARVIS yet. Try again in a moment.")
+        val id = UUID.randomUUID().toString()
+        val future = java.util.concurrent.CompletableFuture<JSONObject>()
+        requests[id] = future
+        ws.send(message.put("id", id).toString())
+        try {
+            return future.get(timeoutSeconds, TimeUnit.SECONDS)
+        } finally {
+            requests.remove(id)
+        }
+    }
 
     /** Send something the user typed or said. If JARVIS is reconnecting, it's sent as soon as
      *  the link is back. */

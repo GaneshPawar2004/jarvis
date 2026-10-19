@@ -34,6 +34,7 @@ class MainActivity : Activity(), CloudLink.Listener {
     private var lastTool: TextView? = null
     private var lastToolName = ""
     private var lastToolCount = 0
+    private var settingsDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -278,6 +279,8 @@ class MainActivity : Activity(), CloudLink.Listener {
             setPadding(0, dp(10), 0, dp(10))
             setOnCheckedChangeListener { _, checked -> change(checked) }
         }
+        form.addView(Ui.primaryButton(this, "🧠  What JARVIS remembers") { settingsDialog?.dismiss(); unlockVault(MEMORY_UNLOCK) },
+            Ui.matchWrap(4, this))
         form.addView(toggle("Speak replies", Prefs.speakReplies) { Prefs.speakReplies = it; if (!it) Speaker.stop() })
         form.addView(toggle("Floating 🎤 on all apps", Prefs.floatingMic(this)) { on ->
             Prefs.setFloatingMic(this, on)
@@ -290,7 +293,7 @@ class MainActivity : Activity(), CloudLink.Listener {
             Ui.matchWrap(8, this))
         form.addView(Ui.text(this, "Tip: add the JARVIS tile to Quick Settings, or set JARVIS as your digital assistant to open it with the power button.",
             13f, Ui.muted), Ui.matchWrap(14, this))
-        AlertDialog.Builder(this)
+        settingsDialog = AlertDialog.Builder(this)
             .setTitle("Settings")
             .setView(form)
             .setPositiveButton("Done", null)
@@ -312,25 +315,28 @@ class MainActivity : Activity(), CloudLink.Listener {
     // ---------------- my details (vault) ----------------
 
     /** The vault screen is behind the phone's own screen lock (fingerprint / PIN). */
-    private fun unlockVault() {
+    private fun unlockVault(requestCode: Int = VAULT_UNLOCK) {
         val keyguard = getSystemService(KeyguardManager::class.java)
         if (!keyguard.isDeviceSecure) {
             AlertDialog.Builder(this)
                 .setMessage("Your phone has no screen lock, so anyone holding it could open your details. Set a PIN or fingerprint in Settings for better protection.")
-                .setPositiveButton("Open anyway") { _, _ -> showVault() }
+                .setPositiveButton("Open anyway") { _, _ -> if (requestCode == MEMORY_UNLOCK) showMemory() else showVault() }
                 .setNegativeButton("Cancel", null)
                 .show()
             return
         }
         @Suppress("DEPRECATION")
-        val intent = keyguard.createConfirmDeviceCredentialIntent("My details", "Unlock to view or edit your saved details")
-        startActivityForResult(intent, VAULT_UNLOCK)
+        val intent = if (requestCode == MEMORY_UNLOCK)
+            keyguard.createConfirmDeviceCredentialIntent("What JARVIS remembers", "Unlock to view or edit JARVIS's memory")
+        else keyguard.createConfirmDeviceCredentialIntent("My details", "Unlock to view or edit your saved details")
+        startActivityForResult(intent, requestCode)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VAULT_UNLOCK && resultCode == RESULT_OK) showVault()
+        if (requestCode == MEMORY_UNLOCK && resultCode == RESULT_OK) showMemory()
         if (requestCode == PICK_RESUME && resultCode == RESULT_OK) data?.data?.let { uploadResume(it) }
     }
 
@@ -423,6 +429,98 @@ class MainActivity : Activity(), CloudLink.Listener {
             .show()
     }
 
+    // ---------------- what JARVIS remembers (Memory 2.0) ----------------
+
+    private fun showMemory() {
+        CloudLink.removeListener(this)
+        val root = Ui.column(this)
+        val header = Ui.row(this)
+        header.addView(Ui.softButton(this, "‹ Back") { showChat() })
+        header.addView(Ui.text(this, "Memory", 22f, bold = true).apply { setPadding(dp(12), 0, 0, 0) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(header, Ui.matchWrap(4, this))
+        val list = Ui.column(this).apply { setPadding(0, 0, 0, dp(16)) }
+        list.addView(Ui.text(this, "What JARVIS has learned about you. It updates these by itself as you talk; tap one to fix or delete it.",
+            14f, Ui.muted), Ui.matchWrap(10, this))
+        list.addView(Ui.primaryButton(this, "+  Add a memory") { editMemory(null) }, Ui.matchWrap(14, this))
+        val body = Ui.column(this)
+        body.addView(Ui.text(this, "Loading…", 15f, Ui.muted), Ui.matchWrap(16, this))
+        list.addView(body)
+        root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        Ui.show(this, root)
+        memoryCall(org.json.JSONObject().put("action", "list")) { renderMemories(body, it) }
+    }
+
+    /** Runs a memory request on a background thread, then updates the screen. */
+    private fun memoryCall(request: org.json.JSONObject, done: (org.json.JSONObject) -> Unit) {
+        thread {
+            try {
+                val result = CloudLink.request(request.put("type", "memory"))
+                runOnUiThread {
+                    if (result.has("error")) AlertDialog.Builder(this).setMessage(result.getString("error")).setPositiveButton("OK", null).show()
+                    else done(result)
+                }
+            } catch (e: Exception) {
+                runOnUiThread { AlertDialog.Builder(this).setMessage(e.message ?: "Couldn't reach JARVIS.").setPositiveButton("OK", null).show() }
+            }
+        }
+    }
+
+    private fun renderMemories(body: LinearLayout, result: org.json.JSONObject) {
+        body.removeAllViews()
+        val items = result.optJSONArray("items") ?: org.json.JSONArray()
+        if (items.length() == 0) {
+            body.addView(Ui.text(this, "Nothing yet. JARVIS will learn as you talk.", 15f, Ui.muted), Ui.matchWrap(16, this))
+            return
+        }
+        val byKind = (0 until items.length()).map { items.getJSONObject(it) }.groupBy { it.optString("kind", "fact") }
+        listOf("person", "place", "project", "goal", "preference", "routine", "fact").filter { it in byKind }.forEach { kind ->
+            body.addView(Ui.text(this, KIND_LABELS[kind] ?: kind.uppercase(), 12f, Ui.muted, bold = true).apply { letterSpacing = 0.1f },
+                Ui.matchWrap(20, this))
+            val card = Ui.card(this).apply { setPadding(dp(16), dp(4), dp(16), dp(4)) }
+            byKind.getValue(kind).forEachIndexed { index, item ->
+                if (index > 0) card.addView(View(this).apply { setBackgroundColor(Ui.border) },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
+                val star = if (item.optInt("importance") >= 4) "  ★" else ""
+                card.addView(Ui.text(this, item.optString("text") + star, 15f).apply {
+                    setPadding(0, dp(12), 0, dp(12))
+                    setOnClickListener { editMemory(item) }
+                })
+            }
+            body.addView(card, Ui.matchWrap(8, this))
+        }
+    }
+
+    private fun editMemory(item: org.json.JSONObject?) {
+        val box = Ui.field(this, "e.g. I prefer remote jobs", item?.optString("text").orEmpty()).apply { isSingleLine = false }
+        val important = CheckBox(this).apply {
+            text = "Important (always remembered)"
+            setTextColor(Ui.text)
+            isChecked = (item?.optInt("importance") ?: 3) >= 4
+        }
+        val form = Ui.column(this).apply {
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(box)
+            addView(important, Ui.matchWrap(8, this@MainActivity))
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (item == null) "Add a memory" else "Edit memory")
+            .setView(form)
+            .setPositiveButton("Save") { _, _ ->
+                val text = box.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    val request = org.json.JSONObject().put("text", text).put("importance", if (important.isChecked) 5 else 3)
+                    if (item == null) request.put("action", "add") else request.put("action", "update").put("memory_id", item.getInt("id"))
+                    memoryCall(request) { showMemory() }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+        if (item != null) dialog.setNeutralButton("Delete") { _, _ ->
+            memoryCall(org.json.JSONObject().put("action", "delete").put("memory_id", item.getInt("id"))) { showMemory() }
+        }
+        dialog.show()
+    }
+
     // ---------------- resume ----------------
 
     private fun pickResume() {
@@ -496,6 +594,12 @@ class MainActivity : Activity(), CloudLink.Listener {
     companion object {
         private const val VAULT_UNLOCK = 3
         private const val PICK_RESUME = 4
+        private const val MEMORY_UNLOCK = 5
+
+        private val KIND_LABELS = mapOf(
+            "person" to "PEOPLE", "place" to "PLACES", "project" to "PROJECTS", "goal" to "GOALS",
+            "preference" to "PREFERENCES", "routine" to "ROUTINES", "fact" to "OTHER FACTS",
+        )
 
         /** Friendly names for what JARVIS is doing. */
         private val TOOL_LABELS = mapOf(

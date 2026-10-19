@@ -12,7 +12,7 @@ from google.genai import types
 from starlette.concurrency import run_in_threadpool
 
 import config
-from core import confirm, db
+from core import confirm, db, memory
 
 CALL_TIMEOUT = 90  # seconds a single device action may take
 CONFIRM_TIMEOUT = 120
@@ -119,6 +119,25 @@ class Agents:
         except Exception:
             pass  # the app disconnected mid-answer
 
+    async def _memory(self, agent: Agent, message: dict) -> None:
+        """List, add, edit or delete long-term memories for the app's Memory screen."""
+        action = message.get("action")
+        try:
+            if action == "add":
+                result = {"message": await run_in_threadpool(memory.add, str(message.get("text", "")),
+                                                              message.get("kind", "fact"), "", int(message.get("importance", 3)), "app")}
+            elif action == "update":
+                result = {"ok": await run_in_threadpool(memory.update, int(message["memory_id"]), message.get("text"),
+                                                        message.get("importance"), message.get("kind"))}
+            elif action == "delete":
+                result = {"ok": await run_in_threadpool(memory.delete, int(message["memory_id"]))}
+            else:
+                result = {}
+            result["items"] = await run_in_threadpool(memory.items)
+        except Exception as e:
+            result = {"error": str(e)}
+        await agent.ws.send_json({"type": "memory_result", "id": message.get("id"), **result})
+
     async def serve(self, ws: WebSocket, name: str) -> None:
         """Run one device connection until it drops."""
         self.loop = asyncio.get_running_loop()
@@ -152,6 +171,8 @@ class Agents:
                     asyncio.create_task(relay_confirm(message))
                 elif kind_of == "chat":
                     asyncio.create_task(self._chat(agent, message))
+                elif kind_of == "memory":  # the app's Memory screen
+                    asyncio.create_task(self._memory(agent, message))
                 elif kind_of == "reset":
                     await self.on_reset()
                     await ws.send_json({"type": "reset_done", "id": message.get("id")})
