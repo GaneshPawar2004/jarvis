@@ -73,7 +73,17 @@ object PhoneTools {
 
     // ---- running a tool ----
 
-    fun run(context: Context, tool: String, args: JSONObject): Any = when (tool) {
+    fun run(context: Context, tool: String, args: JSONObject): Any {
+        val service = JarvisAccessibilityService.instance
+        service?.working(true)
+        try {
+            return runTool(context, tool, args)
+        } finally {
+            service?.working(false)
+        }
+    }
+
+    private fun runTool(context: Context, tool: String, args: JSONObject): Any = when (tool) {
         "phone_open_app" -> openApp(context, args.getString("name"))
         "phone_list_apps" -> JSONArray(launchable(context).keys.sorted())
         "phone_read_screen" -> {

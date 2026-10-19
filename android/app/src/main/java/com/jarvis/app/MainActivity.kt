@@ -12,9 +12,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -41,8 +38,6 @@ class MainActivity : Activity(), CloudLink.Listener {
     private lateinit var scroll: ScrollView
     private lateinit var input: EditText
     private lateinit var mic: Button
-    private var recognizer: SpeechRecognizer? = null
-    private var listenWhenReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,28 +46,24 @@ class MainActivity : Activity(), CloudLink.Listener {
         }
         Speaker.init(this)
         if (Prefs.token(this) == null) showPairing() else showChat()
-        listenWhenReady = intent?.action == Intent.ACTION_ASSIST
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        if (intent.action == Intent.ACTION_ASSIST && ::mic.isInitialized) startListening()
+    override fun onPause() {
+        CloudLink.appVisible = false
+        super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
+        CloudLink.appVisible = true
+        getSystemService(android.app.NotificationManager::class.java).cancel(2) // the reply notification
         if (::controlRow.isInitialized) {
             controlRow.visibility = if (JarvisAccessibilityService.instance == null) View.VISIBLE else View.GONE
-        }
-        if (listenWhenReady && ::mic.isInitialized) {
-            listenWhenReady = false
-            startListening()
         }
     }
 
     override fun onDestroy() {
         CloudLink.removeListener(this)
-        recognizer?.destroy()
         super.onDestroy()
     }
 
@@ -139,10 +130,22 @@ class MainActivity : Activity(), CloudLink.Listener {
             isChecked = Prefs.speakReplies
             setOnCheckedChangeListener { _, checked -> Prefs.speakReplies = checked; if (!checked) Speaker.stop() }
         }
-        root.addView(speak)
+        val floating = CheckBox(this).apply {
+            text = "Floating 🎤 on all apps"
+            setTextColor(muted)
+            isChecked = Prefs.floatingMic(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                Prefs.setFloatingMic(this@MainActivity, checked)
+                JarvisAccessibilityService.instance?.let { if (checked) it.showBubble() else it.removeBubble() }
+            }
+        }
+        val toggles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        toggles.addView(speak)
+        toggles.addView(floating)
+        root.addView(toggles)
 
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        mic = button("🎤") { startListening() }
+        mic = button("🎤") { ListenActivity.open(this) }
         input = EditText(this).apply {
             hint = "Talk to JARVIS…"
             setHintTextColor(muted)
@@ -162,12 +165,12 @@ class MainActivity : Activity(), CloudLink.Listener {
     private fun send(text: String = input.text.toString().trim()) {
         if (text.isEmpty()) return
         input.setText("")
-        if (!CloudLink.chat(text)) {
-            addLine("Not connected to cloud JARVIS yet — try again in a moment.", amber)
-            return
-        }
+        CloudLink.chat(text) // shown via onSent; queued if JARVIS is reconnecting
+    }
+
+    override fun onSent(text: String) {
         addLine(text, textColor, alignEnd = true)
-        status.text = "Thinking…"
+        if (::status.isInitialized) status.text = if (CloudLink.connected) "Thinking…" else "Will send when connected…"
     }
 
     override fun onStatus(connected: Boolean, message: String) {
@@ -282,46 +285,6 @@ class MainActivity : Activity(), CloudLink.Listener {
             }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    // ---------------- voice ----------------
-
-    private fun startListening() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
-            return
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            addLine("Speech recognition isn't available on this phone (install/enable the Google app).", amber)
-            return
-        }
-        Speaker.stop()
-        val engine = recognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also { recognizer = it }
-        engine.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { mic.setTextColor(amber); status.text = "Listening…" }
-            override fun onResults(results: Bundle?) {
-                mic.setTextColor(cyan)
-                results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { send(it) }
-            }
-            override fun onPartialResults(partial: Bundle?) {
-                partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { input.setText(it) }
-            }
-            override fun onError(error: Int) { mic.setTextColor(cyan); status.text = "Didn't catch that — tap 🎤 to try again." }
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        engine.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        })
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        if (requestCode == 1 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startListening()
     }
 
     // ---------------- small view helpers ----------------

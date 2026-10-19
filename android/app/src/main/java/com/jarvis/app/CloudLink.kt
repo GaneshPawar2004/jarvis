@@ -1,6 +1,11 @@
 package com.jarvis.app
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,6 +25,7 @@ import java.util.concurrent.TimeUnit
 object CloudLink {
     interface Listener {
         fun onStatus(connected: Boolean, message: String) {}
+        fun onSent(text: String) {}
         fun onTool(name: String) {}
         fun onReply(text: String, isError: Boolean) {}
     }
@@ -37,6 +43,7 @@ object CloudLink {
     private var socket: WebSocket? = null
     private var wanted = false
     private var retryDelayMs = 5_000L
+    private val outbox = mutableListOf<String>() // said while reconnecting; sent once connected
 
     @Volatile var connected = false
         private set
@@ -96,6 +103,10 @@ object CloudLink {
                 val hello = JSONObject().put("type", "hello").put("kind", "phone").put("tools", PhoneTools.declarations())
                 webSocket.send(hello.toString())
                 setStatus(true, "Connected")
+                synchronized(outbox) {
+                    outbox.forEach { send(webSocket, it) }
+                    outbox.clear()
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) = handle(webSocket, JSONObject(text))
@@ -148,11 +159,41 @@ object CloudLink {
     private fun reply(text: String, isError: Boolean) {
         emit { it.onReply(text, isError) }
         if (!isError && Prefs.speakReplies) Speaker.say(text)
+        if (!appVisible) notifyReply(text)
     }
 
-    /** Send something the user typed or said. */
-    fun chat(text: String): Boolean {
-        val ws = socket ?: return false
-        return ws.send(JSONObject().put("type", "chat").put("id", UUID.randomUUID().toString()).put("text", text).toString())
+    /** The user is in another app: show JARVIS's answer as a notification too. */
+    private fun notifyReply(text: String) {
+        val manager = app.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel("replies", "JARVIS replies", NotificationManager.IMPORTANCE_HIGH))
+        val open = PendingIntent.getActivity(app, 0, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(
+            REPLY_NOTIFICATION,
+            Notification.Builder(app, "replies")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentTitle("JARVIS")
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setTimeoutAfter(60_000)
+                .build(),
+        )
+    }
+
+    @Volatile var appVisible = false
+
+    private const val REPLY_NOTIFICATION = 2
+
+    private fun send(ws: WebSocket, text: String) =
+        ws.send(JSONObject().put("type", "chat").put("id", UUID.randomUUID().toString()).put("text", text).toString())
+
+    /** Send something the user typed or said. If JARVIS is reconnecting, it's sent as soon as
+     *  the link is back. */
+    fun chat(text: String) {
+        emit { it.onSent(text) }
+        val ws = socket
+        if (ws != null && connected && send(ws, text)) return
+        synchronized(outbox) { outbox += text }
     }
 }

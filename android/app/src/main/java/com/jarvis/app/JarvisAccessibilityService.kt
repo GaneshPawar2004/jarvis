@@ -2,9 +2,21 @@ package com.jarvis.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.annotation.SuppressLint
+import android.graphics.Color
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.widget.TextView
+import kotlin.math.abs
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.concurrent.CountDownLatch
@@ -17,15 +29,95 @@ class JarvisAccessibilityService : AccessibilityService() {
     data class Element(val label: String, val kind: String, val bounds: Rect, val node: AccessibilityNodeInfo)
 
     private val elements = mutableMapOf<Int, Element>()
+    private val main = Handler(Looper.getMainLooper())
+    private var bubble: View? = null
+    private var bubbleParams: WindowManager.LayoutParams? = null
+    private var busy = 0
 
     override fun onServiceConnected() {
         instance = this
+        if (Prefs.floatingMic(this)) showBubble()
     }
 
     override fun onDestroy() {
+        removeBubble()
         instance = null
         super.onDestroy()
     }
+
+    // ---------------- floating mic ----------------
+
+    /** A draggable 🎤 on top of every app. Tap it to talk to JARVIS without leaving the app. */
+    @SuppressLint("ClickableViewAccessibility")
+    fun showBubble() = main.post {
+        if (bubble != null) return@post
+        val density = resources.displayMetrics.density
+        val size = (54 * density).toInt()
+        val view = TextView(this).apply {
+            text = "🎤"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            alpha = 0.9f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#E6071521"))
+                setStroke((2 * density).toInt(), Color.parseColor("#3FD9FF"))
+            }
+        }
+        val metrics = resources.displayMetrics
+        val params = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = metrics.widthPixels - size - (6 * density).toInt()
+            y = (metrics.heightPixels * 0.42f).toInt()
+        }
+        var startX = 0; var startY = 0; var touchX = 0f; var touchY = 0f; var dragged = false
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x; startY = params.y; touchX = event.rawX; touchY = event.rawY; dragged = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchX; val dy = event.rawY - touchY
+                    if (abs(dx) > 12 * density || abs(dy) > 12 * density) dragged = true
+                    if (dragged) {
+                        params.x = (startX + dx).toInt(); params.y = (startY + dy).toInt()
+                        windowManager().updateViewLayout(v, params)
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (dragged) { // snap to the nearest side
+                        params.x = if (params.x + size / 2 < metrics.widthPixels / 2) (6 * density).toInt()
+                        else metrics.widthPixels - size - (6 * density).toInt()
+                        windowManager().updateViewLayout(v, params)
+                    } else {
+                        ListenActivity.open(this)
+                    }
+                }
+            }
+            true
+        }
+        windowManager().addView(view, params)
+        bubble = view
+        bubbleParams = params
+    }
+
+    fun removeBubble() = main.post {
+        bubble?.let { windowManager().removeView(it) }
+        bubble = null
+    }
+
+    /** Hide the bubble while JARVIS is tapping/typing, so it never covers what it's touching. */
+    fun working(active: Boolean) = main.post {
+        busy = (busy + if (active) 1 else -1).coerceAtLeast(0)
+        bubble?.visibility = if (busy > 0) View.GONE else View.VISIBLE
+    }
+
+    private fun windowManager() = getSystemService(WindowManager::class.java)
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 

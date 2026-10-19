@@ -38,12 +38,35 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- The small listening panel. Its own empty task affinity keeps the user's current
+             app (LinkedIn, Chrome...) on screen behind it instead of bringing JARVIS forward. -->
+        <activity
+            android:name=".ListenActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Jarvis.Listen">
             <!-- Lets the user pick JARVIS as the assistant (long-press power / home). -->
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Quick Settings tile: swipe down, tap JARVIS, speak. -->
+        <service
+            android:name=".TalkTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_btn_speak_now"
+            android:label="JARVIS"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".LinkService"

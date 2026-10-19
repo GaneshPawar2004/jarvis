@@ -31,4 +31,8 @@ object Prefs {
     fun forget(context: Context) = prefs(context).edit().remove("token").apply()
 
     var speakReplies: Boolean = true
+
+    fun floatingMic(context: Context): Boolean = prefs(context).getBoolean("floating_mic", true)
+
+    fun setFloatingMic(context: Context, on: Boolean) = prefs(context).edit().putBoolean("floating_mic", on).apply()
 }

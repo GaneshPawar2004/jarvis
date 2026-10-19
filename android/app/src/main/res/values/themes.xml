@@ -15,4 +15,13 @@
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColor">@color/text</item>
     </style>
+
+    <!-- Transparent, floating panel shown over other apps. -->
+    <style name="Theme.Jarvis.Listen" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
 </resources>
