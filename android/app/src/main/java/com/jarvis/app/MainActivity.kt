@@ -2,6 +2,8 @@ package com.jarvis.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -111,7 +113,10 @@ class MainActivity : Activity(), CloudLink.Listener {
     private fun showChat() {
         LinkService.start(this)
         val root = column().apply { setPadding(dp(16), dp(28), dp(16), dp(12)) }
-        root.addView(title())
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(title(), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(button("MY DETAILS") { unlockVault() })
+        root.addView(header)
         status = label("", muted).also { root.addView(it) }
 
         controlRow = LinearLayout(this).apply {
@@ -178,6 +183,105 @@ class MainActivity : Activity(), CloudLink.Listener {
     override fun onReply(text: String, isError: Boolean) {
         addLine(if (isError) "⚠ $text" else text, if (isError) amber else cyan)
         status.text = "● Online"
+    }
+
+    // ---------------- my details (vault) ----------------
+
+    /** The vault screen is behind the phone's own screen lock (fingerprint / PIN). */
+    private fun unlockVault() {
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        if (!keyguard.isDeviceSecure) {
+            AlertDialog.Builder(this)
+                .setMessage("Your phone has no screen lock, so anyone holding it could open your details. Set a PIN or fingerprint in Settings for better protection.")
+                .setPositiveButton("Open anyway") { _, _ -> showVault() }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        @Suppress("DEPRECATION")
+        val intent = keyguard.createConfirmDeviceCredentialIntent("My details", "Unlock to view or edit your saved details")
+        startActivityForResult(intent, VAULT_UNLOCK)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VAULT_UNLOCK && resultCode == RESULT_OK) showVault()
+    }
+
+    private fun showVault() {
+        CloudLink.removeListener(this)
+        val root = column().apply { setPadding(dp(16), dp(28), dp(16), dp(12)) }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(label("🔒 My details", cyan).apply { textSize = 22f }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(button("DONE") { showChat() })
+        root.addView(header)
+        root.addView(label("Encrypted on this phone. JARVIS's AI never sees these values; it only knows which ones exist. Tap a field to edit.", muted), spaced())
+
+        val list = column()
+        val saved = Vault.load(this)
+        var category = ""
+        val rows = Vault.TEMPLATE.map { (key, t) -> Triple(key, t, saved[key]) } +
+            saved.values.filter { it.key !in Vault.TEMPLATE }.map { Triple(it.key, Triple(it.label, it.category, it.sensitive), it) }
+        rows.forEach { (key, template, entry) ->
+            val (labelText, group, sensitive) = template
+            if (group != category) {
+                category = group
+                list.addView(label(group.uppercase(), cyan).apply { letterSpacing = 0.2f; setPadding(0, dp(14), 0, dp(4)) })
+            }
+            val shown = when {
+                entry == null -> "not set"
+                sensitive -> Vault.mask(entry.value)
+                else -> entry.value
+            }
+            list.addView(TextView(this).apply {
+                text = "$labelText${if (sensitive) "  🔒" else ""}\n$shown"
+                textSize = 15f
+                setTextColor(if (entry == null) muted else textColor)
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                setOnClickListener { editField(key, labelText, sensitive, entry?.value) }
+            })
+        }
+        list.addView(button("+ ADD CUSTOM FIELD") { addCustomField() }, spaced())
+        root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+    }
+
+    private fun editField(key: String, labelText: String, sensitive: Boolean, current: String?) {
+        val box = field(labelText, current.orEmpty()).apply {
+            if (sensitive) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        }
+        AlertDialog.Builder(this)
+            .setTitle(labelText)
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val value = box.text.toString().trim()
+                if (value.isEmpty()) Vault.delete(this, key) else Vault.set(this, key, value)
+                showVault()
+            }
+            .setNeutralButton("Clear") { _, _ -> Vault.delete(this, key); showVault() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun addCustomField() {
+        val name = field("Field name, e.g. Employee ID", "")
+        val value = field("Value", "")
+        val secret = CheckBox(this).apply { text = "Sensitive (an ID or account number)"; setTextColor(muted) }
+        val form = column().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(name); addView(value); addView(secret) }
+        AlertDialog.Builder(this)
+            .setTitle("Add a detail")
+            .setView(form)
+            .setPositiveButton("Save") { _, _ ->
+                val label = name.text.toString().trim()
+                if (label.isNotEmpty() && value.text.isNotBlank()) {
+                    val key = label.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+                    Vault.set(this, key, value.text.toString().trim(), label, secret.isChecked)
+                }
+                showVault()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ---------------- voice ----------------
@@ -270,5 +374,9 @@ class MainActivity : Activity(), CloudLink.Listener {
         }
         log.addView(line, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    companion object {
+        private const val VAULT_UNLOCK = 3
     }
 }

@@ -258,6 +258,21 @@ when the answer isn't in its prompt.
     friendly message.
   - Tested with a simulated app (same JSON as the Kotlin app) plus the real laptop agent:
     phone chat, phone-tool routing, laptop tools, and the Allow/Deny relay to the app.
+- **Phase D, phone vault and forms:** built, and the app builds cleanly. Not yet installed:
+  the phone wasn't reachable over ADB.
+  - `Crypto.kt` holds the Keystore AES-GCM seal and unseal, using the same alias and format
+    as before, so existing pairings still work.
+  - `Vault.kt` stores sealed JSON in SharedPreferences "vault", with the same TEMPLATE keys
+    as the laptop vault, plus `mask()` and `redact()`.
+  - `PhoneTools` adds `vault_list_fields` (labels only), `phone_fill_field` (sensitive keys
+    go through ConfirmCenter, and typing uses ACTION_SET_TEXT so Unicode works) and
+    `vault_save_field` (refuses ID keys). `phone_read_screen` output is redacted with the
+    vault values.
+  - The MY DETAILS screen in MainActivity is gated by `KeyguardManager` device credential
+    (fingerprint or PIN). It lists template and custom fields, masks IDs, and supports
+    edit, clear and custom fields.
+  - No cloud change was needed: the phone's tools come first in `_devices_changed`, so the
+    phone's vault tools shadow the laptop's.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

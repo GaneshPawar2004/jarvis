@@ -57,6 +57,18 @@ object PhoneTools {
         tool("phone_scroll", "Scroll the phone screen: \"down\" (see content further down), \"up\", \"left\" or \"right\".",
             Triple("direction", "STRING", "Which way.")),
         tool("phone_status", "Get the phone's battery level, charging state and the app currently on screen."),
+        tool("vault_list_fields", "List the user's saved personal details (name, email, address, education, work, " +
+            "ID numbers...) by key and label. Values are hidden; fill them into forms with phone_fill_field."),
+        tool("phone_fill_field", "Fill an input field on the phone with one of the user's saved details. The real value " +
+            "is typed by the phone itself and never shown to you. ID numbers ask the user's permission first.",
+            Triple("element_number", "INTEGER", "The input field's number from the latest phone_read_screen."),
+            Triple("field_key", "STRING", "The vault key to fill in, e.g. \"email\", \"full_name\", \"pincode\".")),
+        tool("vault_save_field", "Save a non-sensitive detail the user told you (e.g. a new email or city) into the " +
+            "phone's vault for future forms. ID numbers must be added by the user in the app's My details screen.",
+            Triple("key", "STRING", "Short snake_case key, e.g. \"email\", \"city\"."),
+            Triple("value", "STRING", "The value the user gave."),
+            Triple("label", "STRING", "Human-readable name; optional for standard keys."),
+            required = listOf("key", "value")),
     ))
 
     // ---- running a tool ----
@@ -64,7 +76,11 @@ object PhoneTools {
     fun run(context: Context, tool: String, args: JSONObject): Any = when (tool) {
         "phone_open_app" -> openApp(context, args.getString("name"))
         "phone_list_apps" -> JSONArray(launchable(context).keys.sorted())
-        "phone_read_screen" -> JSONObject().put("app", service().currentApp()).put("elements", JSONArray(service().readScreen()))
+        "phone_read_screen" -> {
+            val saved = Vault.load(context).values  // the AI never sees the user's saved details
+            JSONObject().put("app", service().currentApp())
+                .put("elements", JSONArray(service().readScreen().map { Vault.redact(it, saved) }))
+        }
         "phone_tap" -> tap(context, args.getInt("element_number"))
         "phone_type" -> {
             service().type(args.getString("text"), args.optInt("element_number", 0))
@@ -76,6 +92,9 @@ object PhoneTools {
             "Scrolled."
         }
         "phone_status" -> status(context)
+        "vault_list_fields" -> listFields(context)
+        "phone_fill_field" -> fillField(context, args.getInt("element_number"), args.getString("field_key"))
+        "vault_save_field" -> saveField(context, args.getString("key"), args.getString("value"), args.optString("label").ifBlank { null })
         else -> throw IllegalArgumentException("Unknown phone tool $tool")
     }
 
@@ -135,6 +154,33 @@ object PhoneTools {
         }
         Thread.sleep(500)
         return "Pressed $key."
+    }
+
+    private fun listFields(context: Context): Any {
+        val entries = Vault.load(context).values
+        if (entries.isEmpty()) return "The vault is empty. The user can add details in the JARVIS app: MY DETAILS."
+        return JSONArray(entries.map {
+            JSONObject().put("key", it.key).put("label", it.label).put("category", it.category).put("sensitive", it.sensitive)
+        })
+    }
+
+    private fun fillField(context: Context, number: Int, key: String): String {
+        val entry = Vault.load(context)[key]
+            ?: return "'$key' is not saved. Ask the user for it, or check vault_list_fields."
+        if (entry.sensitive && !ConfirmCenter.ask(context, "Fill your ${entry.label} into the form on your phone?")) {
+            return "The user did NOT allow filling their ${entry.label}."
+        }
+        service().type(entry.value, number)
+        return "Filled the field with the user's ${entry.label}."
+    }
+
+    private fun saveField(context: Context, key: String, value: String, label: String?): String {
+        val clean = key.trim().lowercase().replace(' ', '_')
+        if (Vault.TEMPLATE[clean]?.third == true) {
+            return "ID numbers must be added by the user in the JARVIS app (MY DETAILS), not through chat."
+        }
+        Vault.set(context, clean, value, label)
+        return "Saved ${label ?: clean} to the phone's vault."
     }
 
     private fun status(context: Context): JSONObject {
