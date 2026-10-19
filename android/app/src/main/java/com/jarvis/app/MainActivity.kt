@@ -7,8 +7,6 @@ import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -16,28 +14,26 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import kotlin.concurrent.thread
 
-/** The JARVIS app screen: pair once with the password, then chat by typing or with the mic.
- *  Also opens when JARVIS is chosen as the phone's assistant (long-press power / home). */
+/** The JARVIS app: pair once with the password, then chat by typing or with the mic.
+ *  Light theme; every screen keeps clear of the status bar, gesture bar and keyboard. */
 class MainActivity : Activity(), CloudLink.Listener {
-    private val cyan = Color.parseColor("#3FD9FF")
-    private val muted = Color.parseColor("#6C93A8")
-    private val amber = Color.parseColor("#FFB84D")
-    private val textColor = Color.parseColor("#CFEFFF")
-
     private lateinit var status: TextView
-    private lateinit var controlRow: LinearLayout
+    private lateinit var controlBanner: View
     private lateinit var log: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var input: EditText
-    private lateinit var mic: Button
+    private var emptyState: View? = null
+    private var lastTool: TextView? = null
+    private var lastToolName = ""
+    private var lastToolCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,36 +46,50 @@ class MainActivity : Activity(), CloudLink.Listener {
 
     override fun onPause() {
         CloudLink.appVisible = false
+        JarvisAccessibilityService.instance?.appInFront(false)
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         CloudLink.appVisible = true
+        JarvisAccessibilityService.instance?.appInFront(true) // no floating mic on top of JARVIS itself
         getSystemService(android.app.NotificationManager::class.java).cancel(2) // the reply notification
-        if (::controlRow.isInitialized) {
-            controlRow.visibility = if (JarvisAccessibilityService.instance == null) View.VISIBLE else View.GONE
+        refreshControlBanner()
+        JarvisAccessibilityService.onConnected = { refreshControlBanner() }
+    }
+
+    private fun refreshControlBanner() {
+        if (::controlBanner.isInitialized) {
+            controlBanner.visibility = if (JarvisAccessibilityService.instance == null) View.VISIBLE else View.GONE
         }
     }
 
     override fun onDestroy() {
+        JarvisAccessibilityService.onConnected = null
         CloudLink.removeListener(this)
         super.onDestroy()
     }
 
+    private fun dp(value: Int) = Ui.dp(this, value)
+
     // ---------------- pairing ----------------
 
     private fun showPairing() {
-        val root = column().apply { setPadding(dp(24), dp(48), dp(24), dp(24)) }
-        root.addView(title())
-        root.addView(label("Connect this phone to your cloud JARVIS. You only do this once.", muted))
-        val url = field("Cloud JARVIS address", Prefs.DEFAULT_URL).apply { setText(Prefs.url(this@MainActivity)) }
-        val password = field("JARVIS password", "").apply {
+        val root = Ui.column(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        root.addView(Ui.text(this, "JARVIS", 34f, Ui.primary, bold = true).apply { gravity = Gravity.CENTER; letterSpacing = 0.25f })
+        root.addView(Ui.text(this, "Your personal assistant", 15f, Ui.muted).apply { gravity = Gravity.CENTER }, Ui.matchWrap(4, this))
+
+        val card = Ui.card(this).apply { setPadding(dp(18), dp(18), dp(18), dp(18)) }
+        card.addView(Ui.text(this, "Connect this phone", 18f, bold = true))
+        card.addView(Ui.text(this, "Enter your JARVIS password once. It isn't saved on the phone.", 14f, Ui.muted), Ui.matchWrap(4, this))
+        val url = Ui.field(this, "Cloud JARVIS address", Prefs.url(this))
+        val password = Ui.field(this, "JARVIS password").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val message = label("", amber)
-        val pair = button("CONNECT") {
-            message.setTextColor(muted)
+        val message = Ui.text(this, "", 14f, Ui.muted)
+        val connect = Ui.primaryButton(this, "Connect") {
+            message.setTextColor(Ui.muted)
             message.text = "Connecting… (a sleeping server can take up to a minute)"
             val address = url.text.toString().trim()
             val secret = password.text.toString()
@@ -88,78 +98,92 @@ class MainActivity : Activity(), CloudLink.Listener {
                     CloudLink.pair(this, address, secret, "Phone (${Build.MANUFACTURER} ${Build.MODEL})")
                     runOnUiThread { showChat() }
                 } catch (e: Exception) {
-                    runOnUiThread {
-                        message.setTextColor(amber)
-                        message.text = e.message ?: "Couldn't connect."
-                    }
+                    runOnUiThread { message.setTextColor(Ui.warn); message.text = e.message ?: "Couldn't connect." }
                 }
             }
         }
-        listOf(url, password, pair, message).forEach { root.addView(it, spaced()) }
-        setContentView(root)
+        card.addView(url, Ui.matchWrap(16, this))
+        card.addView(password, Ui.matchWrap(10, this))
+        card.addView(connect, Ui.matchWrap(16, this))
+        card.addView(message, Ui.matchWrap(10, this))
+        root.addView(card, Ui.matchWrap(28, this))
+        Ui.show(this, root, padH = 20)
     }
 
     // ---------------- chat ----------------
 
     private fun showChat() {
         LinkService.start(this)
-        val root = column().apply { setPadding(dp(16), dp(28), dp(16), dp(12)) }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(title(), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(button("MY DETAILS") { unlockVault() })
-        root.addView(header)
-        status = label("", muted).also { root.addView(it) }
+        val root = Ui.column(this)
 
-        controlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(label("Phone control is off — JARVIS can chat but not tap or type.", amber),
+        // Header: name + live status, then details and settings buttons.
+        val header = Ui.row(this)
+        val titles = Ui.column(this)
+        titles.addView(Ui.text(this, "JARVIS", 24f, Ui.text, bold = true).apply { letterSpacing = 0.12f })
+        status = Ui.text(this, "Connecting…", 13f, Ui.muted).also { titles.addView(it) }
+        header.addView(titles, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(Ui.iconButton(this, "🔒", 44, filled = false) { unlockVault() })
+        header.addView(Ui.iconButton(this, "⚙", 44, filled = false) { showSettings() }.apply {
+            (layoutParams as LinearLayout.LayoutParams).marginStart = dp(8)
+        })
+        root.addView(header, Ui.matchWrap(4, this))
+
+        // Shown only while phone control (Accessibility) is off.
+        controlBanner = Ui.row(this).apply {
+            background = Ui.rounded(Ui.warnSoft, 12, this@MainActivity)
+            setPadding(dp(14), dp(10), dp(10), dp(10))
+            addView(Ui.text(this@MainActivity, "Phone control is off. JARVIS can chat but can't tap or type.", 14f, Ui.warn),
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(button("TURN ON") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
+            addView(Ui.softButton(this@MainActivity, "Turn on") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
             visibility = if (JarvisAccessibilityService.instance == null) View.VISIBLE else View.GONE
         }
-        root.addView(controlRow, spaced())
+        root.addView(controlBanner, Ui.matchWrap(12, this))
 
-        log = column()
-        scroll = ScrollView(this).apply { addView(log) }
-        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        log = Ui.column(this).apply { setPadding(0, dp(8), 0, dp(8)) }
+        scroll = ScrollView(this).apply { isFillViewport = true; addView(log) }
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
+        showEmptyState()
 
-        val speak = CheckBox(this).apply {
-            text = "Speak replies"
-            setTextColor(muted)
-            isChecked = Prefs.speakReplies
-            setOnCheckedChangeListener { _, checked -> Prefs.speakReplies = checked; if (!checked) Speaker.stop() }
+        // Composer: rounded text box with send, and a round mic button.
+        val composer = Ui.row(this)
+        val pill = Ui.row(this).apply {
+            background = Ui.rounded(Ui.surface, 26, this@MainActivity, Ui.border)
+            setPadding(dp(16), dp(2), dp(4), dp(2))
         }
-        val floating = CheckBox(this).apply {
-            text = "Floating 🎤 on all apps"
-            setTextColor(muted)
-            isChecked = Prefs.floatingMic(this@MainActivity)
-            setOnCheckedChangeListener { _, checked ->
-                Prefs.setFloatingMic(this@MainActivity, checked)
-                JarvisAccessibilityService.instance?.let { if (checked) it.showBubble() else it.removeBubble() }
-            }
-        }
-        val toggles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        toggles.addView(speak)
-        toggles.addView(floating)
-        root.addView(toggles)
-
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        mic = button("🎤") { ListenActivity.open(this) }
         input = EditText(this).apply {
-            hint = "Talk to JARVIS…"
-            setHintTextColor(muted)
-            setTextColor(textColor)
+            hint = "Message JARVIS…"
+            textSize = 16f
+            setTextColor(Ui.text)
+            setHintTextColor(Ui.muted)
+            background = null
+            maxLines = 4
             imeOptions = EditorInfo.IME_ACTION_SEND
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             setOnEditorActionListener { _, _, _ -> send(); true }
         }
-        bar.addView(mic)
-        bar.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(button("SEND") { send() })
-        root.addView(bar)
-        setContentView(root)
+        pill.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        pill.addView(Ui.iconButton(this, "➤", 42, filled = false) { send() }.apply {
+            background = null
+            setTextColor(Ui.primary)
+        })
+        composer.addView(pill, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        composer.addView(Ui.iconButton(this, "🎤", 52, filled = true) { ListenActivity.open(this) }.apply {
+            (layoutParams as LinearLayout.LayoutParams).marginStart = dp(10)
+        })
+        root.addView(composer, Ui.matchWrap(8, this))
+
+        Ui.show(this, root)
         CloudLink.addListener(this)
+    }
+
+    private fun showEmptyState() {
+        val hint = Ui.column(this).apply { gravity = Gravity.CENTER; setPadding(dp(24), dp(48), dp(24), dp(24)) }
+        hint.addView(Ui.text(this, "How can I help?", 20f, bold = true).apply { gravity = Gravity.CENTER })
+        hint.addView(Ui.text(this,
+            "Tap 🎤 or type. Try:\n“Find jobs that match my resume”\n“Open LinkedIn”\n“What's my laptop battery?”",
+            15f, Ui.muted).apply { gravity = Gravity.CENTER }, Ui.matchWrap(8, this))
+        emptyState = hint
+        log.addView(hint, Ui.matchWrap(0, this))
     }
 
     private fun send(text: String = input.text.toString().trim()) {
@@ -169,23 +193,120 @@ class MainActivity : Activity(), CloudLink.Listener {
     }
 
     override fun onSent(text: String) {
-        addLine(text, textColor, alignEnd = true)
-        if (::status.isInitialized) status.text = if (CloudLink.connected) "Thinking…" else "Will send when connected…"
+        addBubble(text, fromUser = true)
+        setStatus(if (CloudLink.connected) "Thinking…" else "Will send when connected…", Ui.primary)
     }
 
     override fun onStatus(connected: Boolean, message: String) {
-        if (::status.isInitialized) {
-            status.text = if (connected) "● Online" else "○ $message"
-            status.setTextColor(if (connected) cyan else muted)
-        }
+        if (connected) setStatus("● Online", Ui.green) else setStatus(message, Ui.muted)
         if (!connected && message.startsWith("This phone's key was rejected")) showPairing()
     }
 
-    override fun onTool(name: String) = addLine("⚙ $name", muted)
+    override fun onTool(name: String) {
+        if (!::log.isInitialized) return
+        val label = TOOL_LABELS[name] ?: name.replace('_', ' ')
+        val current = lastTool
+        if (current != null && lastToolName == label) { // collapse repeats: "Searching jobs ×3"
+            lastToolCount++
+            current.text = "⚙  $label  ×$lastToolCount"
+        } else {
+            lastToolName = label
+            lastToolCount = 1
+            lastTool = Ui.text(this, "⚙  $label", 13f, Ui.muted).apply {
+                background = Ui.rounded(Ui.primarySoft, 10, this@MainActivity)
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+            }
+            addRow(lastTool!!, alignEnd = false, topMargin = 4)
+        }
+        setStatus("Working: $label…", Ui.primary)
+    }
 
     override fun onReply(text: String, isError: Boolean) {
-        addLine(if (isError) "⚠ $text" else text, if (isError) amber else cyan)
-        status.text = "● Online"
+        lastTool = null
+        if (isError) {
+            addRow(Ui.text(this, "⚠  $text", 15f, Ui.warn).apply {
+                background = Ui.rounded(Ui.warnSoft, 14, this@MainActivity)
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+            }, alignEnd = false, topMargin = 8)
+        } else {
+            addBubble(text, fromUser = false)
+        }
+        setStatus("● Online", Ui.green)
+    }
+
+    private fun setStatus(text: String, color: Int) {
+        if (!::status.isInitialized) return
+        status.text = text
+        status.setTextColor(color)
+    }
+
+    private fun addBubble(text: String, fromUser: Boolean) {
+        lastTool = null
+        val bubble = Ui.text(this, text, 16f, if (fromUser) Color.WHITE else Ui.text).apply {
+            setTextIsSelectable(true)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                val r = dp(18).toFloat()
+                val small = dp(4).toFloat()
+                cornerRadii = if (fromUser) floatArrayOf(r, r, r, r, small, small, r, r) else floatArrayOf(r, r, r, r, r, r, small, small)
+                setColor(if (fromUser) Ui.primary else Ui.surface)
+                if (!fromUser) setStroke(dp(1), Ui.border)
+            }
+            maxWidth = (resources.displayMetrics.widthPixels * 0.8).toInt()
+        }
+        addRow(bubble, alignEnd = fromUser, topMargin = 10)
+    }
+
+    private fun addRow(view: View, alignEnd: Boolean, topMargin: Int) {
+        if (!::log.isInitialized) return
+        emptyState?.let { log.removeView(it); emptyState = null }
+        val wrapper = LinearLayout(this).apply { gravity = if (alignEnd) Gravity.END else Gravity.START }
+        wrapper.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        log.addView(wrapper, Ui.matchWrap(topMargin, this))
+        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    // ---------------- settings ----------------
+
+    private fun showSettings() {
+        val form = Ui.column(this).apply { setPadding(dp(22), dp(8), dp(22), dp(4)) }
+        fun toggle(label: String, on: Boolean, change: (Boolean) -> Unit) = Switch(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(Ui.text)
+            isChecked = on
+            setPadding(0, dp(10), 0, dp(10))
+            setOnCheckedChangeListener { _, checked -> change(checked) }
+        }
+        form.addView(toggle("Speak replies", Prefs.speakReplies) { Prefs.speakReplies = it; if (!it) Speaker.stop() })
+        form.addView(toggle("Floating 🎤 on all apps", Prefs.floatingMic(this)) { on ->
+            Prefs.setFloatingMic(this, on)
+            JarvisAccessibilityService.instance?.let { if (on) it.showBubble() else it.removeBubble() }
+        })
+        val controlOn = JarvisAccessibilityService.instance != null
+        form.addView(Ui.text(this, if (controlOn) "Phone control: on" else "Phone control: off", 15f,
+            if (controlOn) Ui.green else Ui.warn), Ui.matchWrap(10, this))
+        form.addView(Ui.softButton(this, "Accessibility settings") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+            Ui.matchWrap(8, this))
+        form.addView(Ui.text(this, "Tip: add the JARVIS tile to Quick Settings, or set JARVIS as your digital assistant to open it with the power button.",
+            13f, Ui.muted), Ui.matchWrap(14, this))
+        AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setView(form)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Disconnect phone") { _, _ ->
+                AlertDialog.Builder(this)
+                    .setMessage("Disconnect this phone from JARVIS? You'll need the password to connect again.")
+                    .setPositiveButton("Disconnect") { _, _ ->
+                        CloudLink.stop()
+                        Prefs.forget(this)
+                        stopService(Intent(this, LinkService::class.java))
+                        showPairing()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .show()
     }
 
     // ---------------- my details (vault) ----------------
@@ -211,6 +332,95 @@ class MainActivity : Activity(), CloudLink.Listener {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VAULT_UNLOCK && resultCode == RESULT_OK) showVault()
         if (requestCode == PICK_RESUME && resultCode == RESULT_OK) data?.data?.let { uploadResume(it) }
+    }
+
+    private fun showVault() {
+        CloudLink.removeListener(this)
+        val root = Ui.column(this)
+        val header = Ui.row(this)
+        header.addView(Ui.softButton(this, "‹ Back") { showChat() })
+        header.addView(Ui.text(this, "My details", 22f, bold = true).apply { setPadding(dp(12), 0, 0, 0) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(header, Ui.matchWrap(4, this))
+
+        val list = Ui.column(this).apply { setPadding(0, 0, 0, dp(16)) }
+        list.addView(Ui.text(this, "🔒 Encrypted on this phone. JARVIS's AI never sees these values, only which ones exist. Tap a detail to edit it.",
+            14f, Ui.muted), Ui.matchWrap(10, this))
+        list.addView(Ui.primaryButton(this, "📄  Upload resume (PDF)") { pickResume() }, Ui.matchWrap(14, this))
+
+        val saved = Vault.load(this)
+        val rows = Vault.TEMPLATE.map { (key, t) -> Triple(key, t, saved[key]) } +
+            saved.values.filter { it.key !in Vault.TEMPLATE }.map { Triple(it.key, Triple(it.label, it.category, it.sensitive), it) }
+        rows.groupBy { it.second.second }.forEach { (category, items) ->
+            list.addView(Ui.text(this, category.uppercase(), 12f, Ui.muted, bold = true).apply { letterSpacing = 0.1f },
+                Ui.matchWrap(20, this))
+            val card = Ui.card(this).apply { setPadding(dp(16), dp(4), dp(16), dp(4)) }
+            items.forEachIndexed { index, (key, template, entry) ->
+                val (labelText, _, sensitive) = template
+                if (index > 0) card.addView(View(this).apply { setBackgroundColor(Ui.border) },
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
+                val item = Ui.column(this).apply {
+                    setPadding(0, dp(10), 0, dp(10))
+                    isClickable = true
+                    setOnClickListener { editField(key, labelText, sensitive, entry?.value) }
+                }
+                item.addView(Ui.text(this, labelText + if (sensitive) "  🔒" else "", 13f, Ui.muted))
+                item.addView(Ui.text(this, when {
+                    entry == null -> "Not set"
+                    sensitive -> Vault.mask(entry.value)
+                    else -> entry.value
+                }, 16f, if (entry == null) Ui.muted else Ui.text))
+                card.addView(item)
+            }
+            list.addView(card, Ui.matchWrap(8, this))
+        }
+        list.addView(Ui.softButton(this, "+  Add a custom detail") { addCustomField() }, Ui.matchWrap(16, this))
+        root.addView(ScrollView(this).apply { addView(list) },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        Ui.show(this, root)
+    }
+
+    private fun editField(key: String, labelText: String, sensitive: Boolean, current: String?) {
+        val box = Ui.field(this, labelText, current.orEmpty()).apply {
+            if (sensitive) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        }
+        val frame = Ui.column(this).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(box) }
+        AlertDialog.Builder(this)
+            .setTitle(labelText)
+            .setView(frame)
+            .setPositiveButton("Save") { _, _ ->
+                val value = box.text.toString().trim()
+                if (value.isEmpty()) Vault.delete(this, key) else Vault.set(this, key, value)
+                showVault()
+            }
+            .setNeutralButton("Clear") { _, _ -> Vault.delete(this, key); showVault() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun addCustomField() {
+        val name = Ui.field(this, "Detail name, e.g. Employee ID")
+        val value = Ui.field(this, "Value")
+        val secret = CheckBox(this).apply { text = "Sensitive (an ID or account number)"; setTextColor(Ui.text) }
+        val form = Ui.column(this).apply {
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(name)
+            addView(value, Ui.matchWrap(10, this@MainActivity))
+            addView(secret, Ui.matchWrap(8, this@MainActivity))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Add a detail")
+            .setView(form)
+            .setPositiveButton("Save") { _, _ ->
+                val label = name.text.toString().trim()
+                if (label.isNotEmpty() && value.text.isNotBlank()) {
+                    val key = label.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
+                    Vault.set(this, key, value.text.toString().trim(), label, secret.isChecked)
+                }
+                showVault()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ---------------- resume ----------------
@@ -251,21 +461,21 @@ class MainActivity : Activity(), CloudLink.Listener {
     private fun offerVaultDetails(result: org.json.JSONObject) {
         val saved = Vault.load(this)
         val suggestions = result.optJSONObject("vault_suggestions") ?: org.json.JSONObject()
-        val form = column().apply { setPadding(dp(20), dp(8), dp(20), 0) }
-        form.addView(label(result.optString("summary"), textColor))
+        val form = Ui.column(this).apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        form.addView(Ui.text(this, result.optString("summary"), 15f))
         val roles = result.optJSONArray("suggested_roles")
         if (roles != null && roles.length() > 0) {
-            form.addView(label("Roles that suit you: " + (0 until roles.length()).joinToString { roles.getString(it) }, cyan), spaced())
+            form.addView(Ui.text(this, "Roles that suit you: " + (0 until roles.length()).joinToString { roles.getString(it) },
+                15f, Ui.primary), Ui.matchWrap(12, this))
         }
         val boxes = mutableListOf<Pair<CheckBox, Pair<String, String>>>()
         if (suggestions.length() > 0) {
-            form.addView(label("Add these to My details?", cyan), spaced())
+            form.addView(Ui.text(this, "Add these to My details?", 15f, bold = true), Ui.matchWrap(16, this))
             suggestions.keys().forEach { key ->
                 val value = suggestions.getString(key)
-                val labelText = Vault.TEMPLATE[key]?.first ?: key
                 val box = CheckBox(this).apply {
-                    text = "$labelText: $value"
-                    setTextColor(textColor)
+                    text = "${Vault.TEMPLATE[key]?.first ?: key}: $value"
+                    setTextColor(Ui.text)
                     isChecked = saved[key]?.value.isNullOrBlank() // new details ticked; existing ones left as they are
                 }
                 form.addView(box)
@@ -283,136 +493,22 @@ class MainActivity : Activity(), CloudLink.Listener {
             .show()
     }
 
-    private fun showVault() {
-        CloudLink.removeListener(this)
-        val root = column().apply { setPadding(dp(16), dp(28), dp(16), dp(12)) }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        header.addView(label("🔒 My details", cyan).apply { textSize = 22f }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(button("DONE") { showChat() })
-        root.addView(header)
-        root.addView(label("Encrypted on this phone. JARVIS's AI never sees these values; it only knows which ones exist. Tap a field to edit.", muted), spaced())
-        root.addView(button("📄 UPLOAD RESUME (PDF)") { pickResume() }, spaced())
-
-        val list = column()
-        val saved = Vault.load(this)
-        var category = ""
-        val rows = Vault.TEMPLATE.map { (key, t) -> Triple(key, t, saved[key]) } +
-            saved.values.filter { it.key !in Vault.TEMPLATE }.map { Triple(it.key, Triple(it.label, it.category, it.sensitive), it) }
-        rows.forEach { (key, template, entry) ->
-            val (labelText, group, sensitive) = template
-            if (group != category) {
-                category = group
-                list.addView(label(group.uppercase(), cyan).apply { letterSpacing = 0.2f; setPadding(0, dp(14), 0, dp(4)) })
-            }
-            val shown = when {
-                entry == null -> "not set"
-                sensitive -> Vault.mask(entry.value)
-                else -> entry.value
-            }
-            list.addView(TextView(this).apply {
-                text = "$labelText${if (sensitive) "  🔒" else ""}\n$shown"
-                textSize = 15f
-                setTextColor(if (entry == null) muted else textColor)
-                setPadding(dp(4), dp(8), dp(4), dp(8))
-                setOnClickListener { editField(key, labelText, sensitive, entry?.value) }
-            })
-        }
-        list.addView(button("+ ADD CUSTOM FIELD") { addCustomField() }, spaced())
-        root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        setContentView(root)
-    }
-
-    private fun editField(key: String, labelText: String, sensitive: Boolean, current: String?) {
-        val box = field(labelText, current.orEmpty()).apply {
-            if (sensitive) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-        }
-        AlertDialog.Builder(this)
-            .setTitle(labelText)
-            .setView(box)
-            .setPositiveButton("Save") { _, _ ->
-                val value = box.text.toString().trim()
-                if (value.isEmpty()) Vault.delete(this, key) else Vault.set(this, key, value)
-                showVault()
-            }
-            .setNeutralButton("Clear") { _, _ -> Vault.delete(this, key); showVault() }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun addCustomField() {
-        val name = field("Field name, e.g. Employee ID", "")
-        val value = field("Value", "")
-        val secret = CheckBox(this).apply { text = "Sensitive (an ID or account number)"; setTextColor(muted) }
-        val form = column().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(name); addView(value); addView(secret) }
-        AlertDialog.Builder(this)
-            .setTitle("Add a detail")
-            .setView(form)
-            .setPositiveButton("Save") { _, _ ->
-                val label = name.text.toString().trim()
-                if (label.isNotEmpty() && value.text.isNotBlank()) {
-                    val key = label.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')
-                    Vault.set(this, key, value.text.toString().trim(), label, secret.isChecked)
-                }
-                showVault()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    // ---------------- small view helpers ----------------
-
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-
-    private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-
-    private fun spaced() = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        .apply { topMargin = dp(12) }
-
-    private fun title() = TextView(this).apply {
-        text = "J.A.R.V.I.S."
-        textSize = 26f
-        letterSpacing = 0.3f
-        typeface = Typeface.DEFAULT_BOLD
-        setTextColor(cyan)
-        setShadowLayer(18f, 0f, 0f, cyan)
-    }
-
-    private fun label(value: String, color: Int) = TextView(this).apply {
-        text = value
-        textSize = 14f
-        setTextColor(color)
-    }
-
-    private fun field(hintText: String, value: String) = EditText(this).apply {
-        hint = hintText
-        setText(value)
-        setTextColor(textColor)
-        setHintTextColor(muted)
-        isSingleLine = true
-    }
-
-    private fun button(text: String, onClick: () -> Unit) = Button(this).apply {
-        this.text = text
-        setTextColor(cyan)
-        background = GradientDrawable().apply { setStroke(dp(1), cyan); cornerRadius = dp(6).toFloat() }
-        setOnClickListener { onClick() }
-    }
-
-    private fun addLine(text: String, color: Int, alignEnd: Boolean = false) {
-        if (!::log.isInitialized) return
-        val line = TextView(this).apply {
-            this.text = text
-            textSize = 16f
-            setTextColor(color)
-            gravity = if (alignEnd) Gravity.END else Gravity.START
-            setPadding(dp(4), dp(6), dp(4), dp(6))
-        }
-        log.addView(line, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-    }
-
     companion object {
         private const val VAULT_UNLOCK = 3
         private const val PICK_RESUME = 4
+
+        /** Friendly names for what JARVIS is doing. */
+        private val TOOL_LABELS = mapOf(
+            "find_jobs" to "Searching jobs", "get_resume_profile" to "Reading your resume",
+            "shortlist_job" to "Saving to shortlist", "list_jobs" to "Checking your jobs",
+            "update_job_status" to "Updating job status", "web_search" to "Searching the web",
+            "get_datetime" to "Checking the time", "remember" to "Remembering", "forget" to "Forgetting",
+            "recall_conversations" to "Recalling past chats", "phone_open_app" to "Opening app",
+            "phone_open_url" to "Opening link", "phone_read_screen" to "Reading the screen",
+            "phone_tap" to "Tapping", "phone_type" to "Typing", "phone_press" to "Pressing a button",
+            "phone_scroll" to "Scrolling", "phone_status" to "Checking the phone",
+            "phone_fill_field" to "Filling in your details", "vault_list_fields" to "Checking your saved details",
+            "vault_save_field" to "Saving a detail", "system_status" to "Checking the laptop",
+        )
     }
 }

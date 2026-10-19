@@ -20,8 +20,8 @@ import android.widget.TextView
  *  floating mic, the Quick Settings tile, long-press power, or the app's 🎤), sends what
  *  the user says to JARVIS, then gets out of the way so they stay in their app. */
 class ListenActivity : Activity() {
-    private val cyan = Color.parseColor("#3FD9FF")
-    private val amber = Color.parseColor("#FFB84D")
+    private val cyan = Ui.primary
+    private val amber = Ui.warn
     private lateinit var heading: TextView
     private lateinit var heard: TextView
     private var recognizer: SpeechRecognizer? = null
@@ -38,17 +38,22 @@ class ListenActivity : Activity() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((20 * density).toInt(), (18 * density).toInt(), (20 * density).toInt(), (22 * density).toInt())
+            elevation = 12 * density
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F2071521"))
-                setStroke((1 * density).toInt(), cyan)
-                cornerRadius = 18 * density
+                setColor(Color.WHITE)
+                setStroke((1 * density).toInt(), Ui.border)
+                cornerRadius = 22 * density
             }
         }
         heading = TextView(this).apply { text = "🎤  Listening…"; textSize = 18f; setTextColor(cyan) }
-        heard = TextView(this).apply { textSize = 16f; setTextColor(Color.parseColor("#CFEFFF")); setPadding(0, (8 * density).toInt(), 0, 0) }
+        heard = TextView(this).apply { textSize = 16f; setTextColor(Ui.text); setPadding(0, (8 * density).toInt(), 0, 0) }
         panel.addView(heading)
         panel.addView(heard)
-        setContentView(panel)
+        setContentView(android.widget.FrameLayout(this).apply {
+            val margin = (12 * density).toInt()
+            setPadding(margin, margin, margin, margin + (24 * density).toInt()) // clear of the gesture bar
+            addView(panel)
+        })
 
         LinkService.start(this) // make sure the link to JARVIS is up
         Speaker.stop()

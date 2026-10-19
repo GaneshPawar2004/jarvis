@@ -33,10 +33,13 @@ class JarvisAccessibilityService : AccessibilityService() {
     private var bubble: View? = null
     private var bubbleParams: WindowManager.LayoutParams? = null
     private var busy = 0
+    private var appOpen = false
 
     override fun onServiceConnected() {
         instance = this
+        appOpen = CloudLink.appVisible // JARVIS may already be on screen (e.g. right after an update)
         if (Prefs.floatingMic(this)) showBubble()
+        onConnected?.let { main.post(it) }
     }
 
     override fun onDestroy() {
@@ -57,11 +60,12 @@ class JarvisAccessibilityService : AccessibilityService() {
             text = "🎤"
             textSize = 22f
             gravity = Gravity.CENTER
-            alpha = 0.9f
+            alpha = 0.95f
+            elevation = 6 * density
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#E6071521"))
-                setStroke((2 * density).toInt(), Color.parseColor("#3FD9FF"))
+                setColor(Color.parseColor("#1565D8"))
+                setStroke((2 * density).toInt(), Color.WHITE)
             }
         }
         val metrics = resources.displayMetrics
@@ -104,6 +108,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         windowManager().addView(view, params)
         bubble = view
         bubbleParams = params
+        refreshBubble()
     }
 
     fun removeBubble() = main.post {
@@ -114,7 +119,17 @@ class JarvisAccessibilityService : AccessibilityService() {
     /** Hide the bubble while JARVIS is tapping/typing, so it never covers what it's touching. */
     fun working(active: Boolean) = main.post {
         busy = (busy + if (active) 1 else -1).coerceAtLeast(0)
-        bubble?.visibility = if (busy > 0) View.GONE else View.VISIBLE
+        refreshBubble()
+    }
+
+    /** No floating mic on top of the JARVIS app itself (it has its own mic button). */
+    fun appInFront(open: Boolean) = main.post {
+        appOpen = open
+        refreshBubble()
+    }
+
+    private fun refreshBubble() {
+        bubble?.visibility = if (busy > 0 || appOpen) View.GONE else View.VISIBLE
     }
 
     private fun windowManager() = getSystemService(WindowManager::class.java)
@@ -255,5 +270,8 @@ class JarvisAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var instance: JarvisAccessibilityService? = null
             private set
+
+        /** Lets the open app refresh its "phone control" banner when the service starts. */
+        var onConnected: (() -> Unit)? = null
     }
 }
