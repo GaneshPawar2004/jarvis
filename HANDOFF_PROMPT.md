@@ -304,6 +304,22 @@ when the answer isn't in its prompt.
     plus the vault, confirm before Submit, never mass-apply.
   - App: "📄 UPLOAD RESUME (PDF)" in MY DETAILS (ACTION_OPEN_DOCUMENT), the result dialog
     with vault checkboxes, and a new `phone_open_url` tool.
+- **Brain step 1:** done.
+  - The live conversation is saved in a `threads` table (`history.save_thread` /
+    `load_thread`, Content `model_dump` JSON; thought signatures survive). The cloud brain
+    uses thread "main" and saves after every ask, note and reset. The laptop's offline
+    fallback uses "laptop-offline".
+  - Laptop chat, voice and HUD use `core/remote.connect_brain()`. It returns `RemoteBrain`,
+    a websocket to `/agent` with `kind:"client"` (chat only, no tools, gets a `welcome`
+    with device status), which handles `tool`, `confirm` (answered by the local confirm
+    handler) and `chat_reply`, and reconnects once if the server restarted. If the laptop
+    isn't paired or the cloud is unreachable, it falls back to a local Brain.
+  - Server: `Agents(on_reset)` handles `{"type":"reset"}` with `reset_done`. Clients don't
+    change the brain's tools.
+  - Tested: chat, a laptop tool through the agent, Allow on the laptop, persistence across a
+    hard server restart, reset, offline fallback.
+  - Next: Memory 2.0 (relevant-only retrieval, a memory writer that updates facts,
+    pgvector, Memory screen).
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

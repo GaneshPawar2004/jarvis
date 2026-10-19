@@ -18,7 +18,7 @@ from playsound3 import playsound
 from rich.console import Console
 
 import config
-from core.brain import Brain
+from core.remote import connect_brain
 
 SAMPLE_RATE = 16_000
 FRAME_SAMPLES = 1_280  # 80 ms, the frame size openWakeWord expects
@@ -184,7 +184,8 @@ def run() -> None:
     openwakeword.utils.download_models(["hey_jarvis"])
     wakeword = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
     recognizer = WhisperModel("base.en", device="cpu", compute_type="int8")
-    brain = Brain(on_tool=_show_tool)
+    brain, note = connect_brain(on_tool=_show_tool)
+    console.print(f"[dim]{note}[/]")
     has_ack = _prepare_ack()
     speech_warned = False
 

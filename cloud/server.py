@@ -95,7 +95,12 @@ async def _app_chat(agent, text: str, on_tool, ask_user) -> dict:
     return await ask_brain(brain, brain_lock, text, on_tool, ask_user)
 
 
-agents = Agents(on_change=_devices_changed, on_chat=_app_chat)
+async def _reset_conversation() -> None:
+    async with brain_lock:
+        await run_in_threadpool(brain.reset)
+
+
+agents = Agents(on_change=_devices_changed, on_chat=_app_chat, on_reset=_reset_conversation)
 
 
 @asynccontextmanager
@@ -103,7 +108,7 @@ async def lifespan(app: FastAPI):
     global brain
     if len(PASSWORD) < 12:
         raise RuntimeError("Set JARVIS_PASSWORD (at least 12 characters) before starting the cloud server.")
-    brain = await run_in_threadpool(Brain, None, cloud_tools(), CLOUD_CONTEXT)
+    brain = await run_in_threadpool(Brain, None, cloud_tools(), CLOUD_CONTEXT, "main")
     yield
     await run_in_threadpool(brain.close)
 

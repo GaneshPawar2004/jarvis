@@ -1,5 +1,6 @@
 """Conversation memory: every exchange is logged, sessions get short summaries, and past
 conversations can be searched by meaning (Gemini embeddings)."""
+import json
 from datetime import datetime
 
 import numpy as np
@@ -103,3 +104,19 @@ def search(query: str, limit: int = 5) -> list[dict]:
             (*params, limit),
         )
     return [{"when": _session_date(s), "user": u, "jarvis": r} for s, u, r in matches]
+
+
+def save_thread(thread: str, contents: list[types.Content]) -> None:
+    """Keep the live conversation in the database, so a server restart doesn't wipe it."""
+    data = json.dumps([c.model_dump(mode="json", exclude_none=True) for c in contents])
+    db.execute(db.upsert_thread_sql(), (thread, _ts(), data))
+
+
+def load_thread(thread: str) -> list[types.Content]:
+    rows = db.rows("SELECT contents FROM threads WHERE id = ?", (thread,))
+    if not rows:
+        return []
+    try:
+        return [types.Content.model_validate(c) for c in json.loads(rows[0][0])]
+    except Exception:
+        return []  # an unreadable thread starts fresh rather than breaking the brain

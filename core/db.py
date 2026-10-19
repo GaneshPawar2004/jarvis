@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS resumes (
     data {blob} NOT NULL,
     profile TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS threads (
+    id TEXT PRIMARY KEY,
+    updated TEXT NOT NULL,
+    contents TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS jobs (
     id {pk},
     title TEXT NOT NULL,
@@ -129,6 +134,13 @@ def execute(sql: str, params=()) -> None:
 def execute_many(sql: str, params: list) -> None:
     if params:
         _run(sql, params, fetch=False, many=True)
+
+
+def upsert_thread_sql() -> str:
+    if is_postgres():
+        return ("INSERT INTO threads (id, updated, contents) VALUES (?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated, contents = EXCLUDED.contents")
+    return "INSERT OR REPLACE INTO threads (id, updated, contents) VALUES (?, ?, ?)"
 
 
 def upsert_summary_sql() -> str:

@@ -4,7 +4,7 @@ from rich.prompt import Confirm
 
 import config
 from core import confirm, history, memory
-from core.brain import Brain
+from core.remote import connect_brain
 
 console = Console()
 _status = None  # the 'Thinking…' spinner, paused while asking the user
@@ -47,7 +47,9 @@ def run() -> None:
     global _status
     console.print(f"[bold cyan]{BANNER}[/]")
     console.print("[dim]Type your message. Commands: /memory (what I remember), /reset (clear chat), /exit[/]\n")
-    brain = Brain(on_tool=show_tool)
+    with console.status("[cyan]Connecting to cloud JARVIS…[/]", spinner="dots"):
+        brain, note = connect_brain(on_tool=show_tool)
+    console.print(f"[dim]{note}[/]\n")
     confirm.set_handler(ask_user)
 
     while True:

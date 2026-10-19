@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 import config
 from core import history, memory
-from core.brain import Brain
+from core.remote import connect_brain
 from interfaces.hud import auth
 from interfaces.hud import login as pages
 from interfaces.hud.session import serve_chat
@@ -28,7 +28,7 @@ PORT = 8765
 STATIC = Path(__file__).parent / "static"
 PUBLIC_PATHS = {"/login", "/static/manifest.json", "/static/icon-192.png", "/static/icon-512.png"}
 
-brain: Brain | None = None
+brain = None  # the shared cloud brain (or the laptop's own brain when offline)
 brain_lock = asyncio.Lock()
 _net = {"time": time.monotonic(), "counters": psutil.net_io_counters()}
 
@@ -36,7 +36,8 @@ _net = {"time": time.monotonic(), "counters": psutil.net_io_counters()}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global brain
-    brain = await run_in_threadpool(Brain)
+    brain, note = await run_in_threadpool(connect_brain)
+    print(note)
     yield
     await run_in_threadpool(brain.close)
 

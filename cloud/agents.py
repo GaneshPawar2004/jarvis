@@ -16,7 +16,7 @@ from core import confirm, db
 
 CALL_TIMEOUT = 90  # seconds a single device action may take
 CONFIRM_TIMEOUT = 120
-KINDS = ("laptop", "phone")
+KINDS = ("laptop", "phone", "client")  # client = chat only (laptop chat/voice/HUD), offers no tools
 
 
 def hash_token(token: str) -> str:
@@ -69,11 +69,12 @@ class Agent:
 class Agents:
     """Tracks connected devices and keeps the brain's tool list in sync with them."""
 
-    def __init__(self, on_change, on_chat):
+    def __init__(self, on_change, on_chat, on_reset):
         self.devices: dict[str, Agent] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self.on_change = on_change  # async callable(event: str) -> updates the brain
         self.on_chat = on_chat  # async callable(agent, text, on_tool, ask_user) -> reply event
+        self.on_reset = on_reset  # async callable() -> starts a fresh conversation
 
     @property
     def laptop(self) -> Agent | None:
@@ -128,10 +129,14 @@ class Agents:
             return
         declarations = [types.FunctionDeclaration.model_validate(d) for d in hello.get("tools", [])]
         agent = Agent(ws, kind, name, declarations)
-        if kind in self.devices:  # a newer connection from the same kind of device replaces the old one
-            self.devices[kind].fail_all(f"The {kind} reconnected.")
-        self.devices[kind] = agent
-        await self.on_change(f"The {kind} just connected.")
+        if kind == "client":  # chat only: doesn't change what the brain can do
+            await ws.send_json({"type": "welcome", "laptop_online": self.laptop is not None,
+                                "phone_online": self.phone is not None})
+        else:
+            if kind in self.devices:  # a newer connection from the same kind of device replaces the old one
+                self.devices[kind].fail_all(f"The {kind} reconnected.")
+            self.devices[kind] = agent
+            await self.on_change(f"The {kind} just connected.")
 
         async def relay_confirm(message: dict) -> None:
             approved = await run_in_threadpool(confirm.ask, str(message.get("text", "")))
@@ -147,6 +152,9 @@ class Agents:
                     asyncio.create_task(relay_confirm(message))
                 elif kind_of == "chat":
                     asyncio.create_task(self._chat(agent, message))
+                elif kind_of == "reset":
+                    await self.on_reset()
+                    await ws.send_json({"type": "reset_done", "id": message.get("id")})
         except WebSocketDisconnect:
             pass
         finally:

@@ -82,10 +82,14 @@ class Brain:
         on_tool: Callable[[str, dict], None] | None = None,
         tools: list | None = None,
         context: str = LAPTOP_CONTEXT,
+        thread: str | None = None,
     ):
         llm.client()  # fail fast if the API key is missing
         self.set_tools(tools if tools is not None else local_tools(), context)
-        self.history: list[types.Content] = []
+        # thread = name of the saved conversation; the cloud brain keeps one, shared by every
+        # device, so a server restart no longer wipes what the user was just talking about.
+        self.thread = thread
+        self.history: list[types.Content] = history.load_thread(thread) if thread else []
         self.on_tool = on_tool or (lambda name, args: None)
         self.active_model = config.MODELS[0]
         self.session = history.new_session_id()
@@ -105,6 +109,7 @@ class Brain:
         notice = f"[System notice, not from the user: {text}]"
         self.history.append(types.Content(role="user", parts=[types.Part(text=notice)]))
         self.history.append(types.Content(role="model", parts=[types.Part(text="Noted.")]))
+        self._save()
 
     def _config(self) -> types.GenerateContentConfig:
         facts = memory.all_facts()
@@ -168,6 +173,7 @@ class Brain:
             reply = "That task needed more steps than I'm permitted in one go, " + config.USER_NAME + "."
 
         self.history = self._trim(contents)
+        self._save()
         history.log_exchange(self.session, text, reply)
         return reply
 
@@ -202,7 +208,15 @@ class Brain:
                 return contents[i:]
         return contents[-2:]
 
+    def _save(self) -> None:
+        if self.thread:
+            try:
+                history.save_thread(self.thread, self.history)
+            except Exception:
+                pass  # a database hiccup must never lose the reply itself
+
     def reset(self) -> None:
         self.summarize(self.session)
         self.history = []
+        self._save()
         self.session = history.new_session_id()
