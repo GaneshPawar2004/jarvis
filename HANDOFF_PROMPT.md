@@ -376,6 +376,30 @@ when the answer isn't in its prompt.
     The prompt and `get_datetime` now also give 24-hour time.
   - Tested with a simulated phone and laptop: protocol save and run (laptop and phone
     tools), the battery alert reaching the phone, and the briefing.
+- **Your own API keys and images:** done.
+  - `core/keys.py`: the `api_keys` table is AES-GCM encrypted with a scrypt key derived from
+    `JARVIS_KEY_SECRET` (or `JARVIS_PASSWORD`). Only the last 4 characters are stored in
+    the clear. `PROVIDERS` lists gemini, anthropic, openai, groq, openrouter, cloudflare
+    (also needs an Account ID) and pollinations (no key). Settings live in `meta`
+    (`setting:*`, cached 30 s).
+  - `core/providers.py`: Gemini history and tools are translated to Anthropic Messages and
+    OpenAI chat/completions (OpenAI, Groq, OpenRouter) and back; ids are paired through
+    `_turns`. `check()` validates a key and picks a model with the PREFERRED regexes.
+  - `llm.generate` (when not light and there is no media) tries
+    `setting chat_provider` first, then falls back to the Gemini chain. Gemini was verified
+    to accept unsigned function calls in earlier turns. A user's own Gemini key overrides
+    the env key (`llm.reset_client()`).
+  - `skills/images.py`, `generate_image`: Cloudflare FLUX schnell, then Pollinations (free,
+    watermark), then OpenAI gpt-image (the `setting image_provider` choice goes first). It
+    stores into the `images` table and `take_pending()` attaches ids to replies.
+    `GET /api/image/{id}` takes a device Bearer or a session cookie.
+  - The device socket handles `{"type":"settings","action":"list|save_key|remove_key|route"}`.
+  - App: an "AI providers" screen behind the device lock, image bubbles in the chat (tap
+    to save to Pictures/JARVIS), and the web HUD shows images.
+  - Tested: the OpenAI-format adapter live (a tool call came back through Pollinations'
+    free endpoint), the Anthropic and OpenAI translation with mocks, key save, test, reject
+    and encryption, routing guards, and real image generation and download. Not yet tested
+    against real Claude or OpenAI keys; the user hasn't provided any.
 - **Phase 5, home and devices:** smart lights and plugs, media control (ask what hardware the user owns).
 - **Phase 6, vision:** webcam, face recognition and scene description (Gemini is multimodal).
 - **Phase 7, autonomy:** reminders, scheduled briefings, multi-step tasks.

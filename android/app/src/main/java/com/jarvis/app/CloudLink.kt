@@ -28,6 +28,7 @@ object CloudLink {
         fun onSent(text: String) {}
         fun onTool(name: String) {}
         fun onReply(text: String, isError: Boolean) {}
+        fun onImages(ids: List<Int>) {}
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -94,6 +95,16 @@ object CloudLink {
             if (!response.isSuccessful) throw IllegalStateException(json.optString("error", "Upload failed (${response.code})"))
             return json
         }
+    }
+
+    /** Download a picture JARVIS made (with this phone's device key). */
+    fun fetchImage(context: Context, id: Int): ByteArray {
+        val token = Prefs.token(context) ?: throw IllegalStateException("Not connected.")
+        http.newCall(Request.Builder().url(Prefs.url(context) + "/api/image/$id").header("Authorization", "Bearer $token").build())
+            .execute().use { response ->
+                if (!response.isSuccessful) throw IllegalStateException("Couldn't load the image (${response.code}).")
+                return response.body!!.bytes()
+            }
     }
 
     fun start(context: Context) {
@@ -168,10 +179,14 @@ object CloudLink {
                 webSocket.send(JSONObject().put("type", "confirm_reply").put("id", message.getString("id")).put("approved", approved).toString())
             }
             "tool" -> emit { it.onTool(message.optString("name")) }
-            "memory_result" -> requests.remove(message.optString("id"))?.complete(message)
+            "memory_result", "settings_result" -> requests.remove(message.optString("id"))?.complete(message)
             "notify" -> Reminders.notify(app, 7000 + (message.optString("text").hashCode() and 0xfff),
                 message.optString("title", "JARVIS"), message.optString("text"))
-            "chat_reply" -> reply(message.optString("text"), false)
+            "chat_reply" -> {
+                reply(message.optString("text"), false)
+                val images = message.optJSONArray("images")
+                if (images != null && images.length() > 0) emit { it.onImages((0 until images.length()).map(images::getInt)) }
+            }
             "chat_error" -> reply(message.optString("text"), true)
         }
     }

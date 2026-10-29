@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS api_keys (
+    provider TEXT PRIMARY KEY,
+    secret TEXT NOT NULL,
+    extra TEXT NOT NULL,
+    last4 TEXT NOT NULL,
+    added TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS images (
+    id {pk},
+    prompt TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    data {blob} NOT NULL,
+    created TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS protocols (
     name TEXT PRIMARY KEY,
     steps TEXT NOT NULL,

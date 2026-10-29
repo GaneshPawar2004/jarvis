@@ -17,12 +17,26 @@ class QuotaExhausted(RuntimeError):
 
 
 def client() -> genai.Client:
+    """Gemini client: the user's own Gemini key if they added one, else the server's."""
     global _client
     if _client is None:
-        if not config.GEMINI_API_KEY:
+        key = config.GEMINI_API_KEY
+        try:
+            from core import keys
+
+            key = (keys.get("gemini") or (key, ""))[0]
+        except Exception:
+            pass  # no database yet: use the configured key
+        if not key:
             raise RuntimeError("GEMINI_API_KEY is missing from .env")
-        _client = genai.Client(api_key=config.GEMINI_API_KEY)
+        _client = genai.Client(api_key=key)
     return _client
+
+
+def reset_client() -> None:
+    """Call after the Gemini key changes."""
+    global _client
+    _client = None
 
 
 def _retry_after(error: errors.APIError) -> float:
@@ -36,6 +50,15 @@ def generate(
 ) -> tuple[types.GenerateContentResponse, str]:
     """Call the first available model; returns (response, model used). If every model is
     over the free per-minute limit, waits for it to reset once before giving up."""
+    if not light:  # the user's chosen chat provider first; Gemini is always the fallback
+        from core import keys, providers
+
+        route = keys.setting("chat_provider", "gemini")
+        if route != "gemini" and not providers.has_media(contents):
+            try:
+                return providers.generate(route, contents, cfg)
+            except Exception as e:
+                print(f"[llm] {route} failed ({type(e).__name__}: {str(e)[:120]}); using Gemini")
     models = list(reversed(config.MODELS)) if light else config.MODELS  # light = background work: cheapest model first
     last_error = None
     waited_for_quota = False

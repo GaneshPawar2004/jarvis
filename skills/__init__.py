@@ -8,12 +8,13 @@ laptop tools need Windows-only libraries that the cloud server doesn't have.
 
 def cloud_tools() -> list:
     """Tools that work anywhere, including the cloud server."""
-    from skills import jobs, memory, protocols, system, web
+    from skills import images, jobs, memory, protocols, system, web
 
     return [
         system.get_datetime,
         web.web_search,
         web.get_weather,
+        images.generate_image,
         memory.remember,
         memory.forget,
         memory.recall_conversations,

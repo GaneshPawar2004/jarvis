@@ -119,6 +119,55 @@ class Agents:
         except Exception:
             pass  # the app disconnected mid-answer
 
+    async def _settings(self, agent: Agent, message: dict) -> None:
+        """Add, test or remove the user's own AI keys, and choose providers."""
+        from core import keys, llm, providers
+
+        action = message.get("action")
+        provider = str(message.get("provider", ""))
+        result: dict = {}
+        try:
+            if action == "save_key":
+                if provider not in keys.PROVIDERS or keys.PROVIDERS[provider].get("no_key"):
+                    raise ValueError("Unknown provider.")
+                model = await run_in_threadpool(providers.check, provider, str(message.get("key", "")), str(message.get("extra", "")))
+                await run_in_threadpool(keys.save, provider, str(message.get("key", "")), str(message.get("extra", "")))
+                await run_in_threadpool(keys.set_setting, f"model:{provider}", model)
+                if provider == "gemini":
+                    llm.reset_client()
+                result["message"] = f"{keys.PROVIDERS[provider]['name']} connected."
+            elif action == "remove_key":
+                await run_in_threadpool(keys.remove, provider)
+                if keys.setting("chat_provider", "gemini") == provider:
+                    await run_in_threadpool(keys.set_setting, "chat_provider", "gemini")
+                if keys.setting("image_provider", "auto") == provider:
+                    await run_in_threadpool(keys.set_setting, "image_provider", "auto")
+                if provider == "gemini":
+                    llm.reset_client()
+                result["message"] = "Removed."
+            elif action == "route":
+                kind, choice = message.get("kind"), str(message.get("choice", ""))
+                if kind == "chat":
+                    if choice != "gemini" and not await run_in_threadpool(keys.get, choice):
+                        raise ValueError("Add that provider's key first.")
+                    await run_in_threadpool(keys.set_setting, "chat_provider", choice)
+                elif kind == "images":
+                    await run_in_threadpool(keys.set_setting, "image_provider", choice)
+            stored = await run_in_threadpool(keys.stored)
+            result["providers"] = [
+                {"id": pid, **{k: v for k, v in info.items()},
+                 "connected": pid in stored or info.get("no_key", False) or (pid == "gemini" and bool(config.GEMINI_API_KEY)),
+                 "last4": stored.get(pid, {}).get("last4", ""),
+                 "own_key": pid in stored,
+                 "model": keys.setting(f"model:{pid}")}
+                for pid, info in keys.PROVIDERS.items()
+            ]
+            result["chat_provider"] = keys.setting("chat_provider", "gemini")
+            result["image_provider"] = keys.setting("image_provider", "auto")
+        except Exception as e:
+            result = {"error": str(e)}
+        await agent.ws.send_json({"type": "settings_result", "id": message.get("id"), **result})
+
     async def _memory(self, agent: Agent, message: dict) -> None:
         """List, add, edit or delete long-term memories for the app's Memory screen."""
         action = message.get("action")
@@ -175,6 +224,8 @@ class Agents:
                     if self.phone is not None:
                         await self.phone.ws.send_json({"type": "notify", "title": message.get("title", "JARVIS"),
                                                        "text": message.get("text", "")})
+                elif kind_of == "settings":  # the app's AI providers screen
+                    asyncio.create_task(self._settings(agent, message))
                 elif kind_of == "memory":  # the app's Memory screen
                     asyncio.create_task(self._memory(agent, message))
                 elif kind_of == "reset":

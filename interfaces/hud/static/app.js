@@ -126,6 +126,12 @@ function connect() {
     } else if (msg.type === "reply") {
       $("model").textContent = msg.model;
       addMessage("jarvis", msg.text);
+      (msg.images || []).forEach((id) => {
+        const img = Object.assign(document.createElement("img"), { src: `/api/image/${id}`, alt: "Image made by JARVIS" });
+        img.className = "msg-image";
+        log.append(img);
+        img.onload = () => { log.scrollTop = log.scrollHeight; };
+      });
       speak(msg.text);
       refreshMemory();
     } else if (msg.type === "confirm") {

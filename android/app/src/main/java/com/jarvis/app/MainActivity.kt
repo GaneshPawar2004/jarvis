@@ -241,6 +241,55 @@ class MainActivity : Activity(), CloudLink.Listener {
         setStatus("● Online", Ui.green)
     }
 
+    override fun onImages(ids: List<Int>) {
+        ids.forEach { id ->
+            thread {
+                try {
+                    val bytes = CloudLink.fetchImage(this, id)
+                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@thread
+                    runOnUiThread { addImage(bitmap, bytes) }
+                } catch (e: Exception) {
+                    runOnUiThread { addBubble("(Couldn't load the picture: ${e.message})", fromUser = false) }
+                }
+            }
+        }
+    }
+
+    private fun addImage(bitmap: android.graphics.Bitmap, bytes: ByteArray) {
+        val width = (resources.displayMetrics.widthPixels * 0.7).toInt()
+        val view = android.widget.ImageView(this).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+            maxWidth = width
+            clipToOutline = true
+            background = Ui.rounded(Ui.surface, 18, this@MainActivity, Ui.border)
+            layoutParams = LinearLayout.LayoutParams(width, LinearLayout.LayoutParams.WRAP_CONTENT)
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setMessage("Save this picture to your gallery?")
+                    .setPositiveButton("Save") { _, _ -> saveImage(bytes) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+        addRow(view, alignEnd = false, topMargin = 8)
+    }
+
+    private fun saveImage(bytes: ByteArray) {
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "jarvis_${System.currentTimeMillis()}.jpg")
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/JARVIS")
+        }
+        val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            android.widget.Toast.makeText(this, "Couldn't save.", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+        android.widget.Toast.makeText(this, "Saved to Pictures/JARVIS", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     private fun setStatus(text: String, color: Int) {
         if (!::status.isInitialized) return
         status.text = text
@@ -287,6 +336,8 @@ class MainActivity : Activity(), CloudLink.Listener {
         }
         form.addView(Ui.primaryButton(this, "🧠  What JARVIS remembers") { settingsDialog?.dismiss(); unlockVault(MEMORY_UNLOCK) },
             Ui.matchWrap(4, this))
+        form.addView(Ui.primaryButton(this, "🔑  AI providers and keys") { settingsDialog?.dismiss(); unlockVault(PROVIDERS_UNLOCK) },
+            Ui.matchWrap(8, this))
         form.addView(toggle("Speak replies", Prefs.speakReplies) { Prefs.speakReplies = it; if (!it) Speaker.stop() })
         form.addView(toggle("Floating 🎤 on all apps", Prefs.floatingMic(this)) { on ->
             Prefs.setFloatingMic(this, on)
@@ -349,15 +400,19 @@ class MainActivity : Activity(), CloudLink.Listener {
         if (!keyguard.isDeviceSecure) {
             AlertDialog.Builder(this)
                 .setMessage("Your phone has no screen lock, so anyone holding it could open your details. Set a PIN or fingerprint in Settings for better protection.")
-                .setPositiveButton("Open anyway") { _, _ -> if (requestCode == MEMORY_UNLOCK) showMemory() else showVault() }
+                .setPositiveButton("Open anyway") { _, _ ->
+                    when (requestCode) { MEMORY_UNLOCK -> showMemory(); PROVIDERS_UNLOCK -> showProviders(); else -> showVault() }
+                }
                 .setNegativeButton("Cancel", null)
                 .show()
             return
         }
         @Suppress("DEPRECATION")
-        val intent = if (requestCode == MEMORY_UNLOCK)
-            keyguard.createConfirmDeviceCredentialIntent("What JARVIS remembers", "Unlock to view or edit JARVIS's memory")
-        else keyguard.createConfirmDeviceCredentialIntent("My details", "Unlock to view or edit your saved details")
+        val intent = when (requestCode) {
+            MEMORY_UNLOCK -> keyguard.createConfirmDeviceCredentialIntent("What JARVIS remembers", "Unlock to view or edit JARVIS's memory")
+            PROVIDERS_UNLOCK -> keyguard.createConfirmDeviceCredentialIntent("AI providers", "Unlock to manage your API keys")
+            else -> keyguard.createConfirmDeviceCredentialIntent("My details", "Unlock to view or edit your saved details")
+        }
         startActivityForResult(intent, requestCode)
     }
 
@@ -366,6 +421,7 @@ class MainActivity : Activity(), CloudLink.Listener {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VAULT_UNLOCK && resultCode == RESULT_OK) showVault()
         if (requestCode == MEMORY_UNLOCK && resultCode == RESULT_OK) showMemory()
+        if (requestCode == PROVIDERS_UNLOCK && resultCode == RESULT_OK) showProviders()
         if (requestCode == PICK_RESUME && resultCode == RESULT_OK) data?.data?.let { uploadResume(it) }
     }
 
@@ -453,6 +509,128 @@ class MainActivity : Activity(), CloudLink.Listener {
                     Vault.set(this, key, value.text.toString().trim(), label, secret.isChecked)
                 }
                 showVault()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ---------------- AI providers (your own API keys) ----------------
+
+    private fun showProviders() {
+        CloudLink.removeListener(this)
+        val root = Ui.column(this)
+        val header = Ui.row(this)
+        header.addView(Ui.softButton(this, "‹ Back") { showChat() })
+        header.addView(Ui.text(this, "AI providers", 22f, bold = true).apply { setPadding(dp(12), 0, 0, 0) },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(header, Ui.matchWrap(4, this))
+        val body = Ui.column(this).apply { setPadding(0, 0, 0, dp(16)) }
+        body.addView(Ui.text(this, "Loading…", 15f, Ui.muted), Ui.matchWrap(16, this))
+        root.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        Ui.show(this, root)
+        settingsCall(org.json.JSONObject().put("action", "list")) { renderProviders(body, it) }
+    }
+
+    private fun settingsCall(request: org.json.JSONObject, done: (org.json.JSONObject) -> Unit) {
+        thread {
+            try {
+                val result = CloudLink.request(request.put("type", "settings"), 90)
+                runOnUiThread {
+                    if (result.has("error")) AlertDialog.Builder(this).setMessage(result.getString("error")).setPositiveButton("OK", null).show()
+                    else {
+                        result.optString("message").takeIf { it.isNotEmpty() }?.let {
+                            android.widget.Toast.makeText(this, it, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        done(result)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { AlertDialog.Builder(this).setMessage(e.message ?: "Couldn't reach JARVIS.").setPositiveButton("OK", null).show() }
+            }
+        }
+    }
+
+    private fun renderProviders(body: LinearLayout, result: org.json.JSONObject) {
+        body.removeAllViews()
+        val all = result.getJSONArray("providers").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+        fun kinds(p: org.json.JSONObject) = p.getJSONArray("kinds").let { k -> (0 until k.length()).map { k.getString(it) } }
+        body.addView(Ui.text(this, "Keys are stored encrypted in your cloud JARVIS and never shown to the AI. If a provider fails, JARVIS falls back to Gemini.",
+            14f, Ui.muted), Ui.matchWrap(10, this))
+
+        // Which AI runs the chat
+        body.addView(Ui.text(this, "CHAT BRAIN", 12f, Ui.muted, bold = true), Ui.matchWrap(20, this))
+        val chat = android.widget.RadioGroup(this)
+        all.filter { "chat" in kinds(it) && it.getBoolean("connected") }.forEach { p ->
+            chat.addView(android.widget.RadioButton(this).apply {
+                text = p.getString("name") + (p.optString("model").takeIf { m -> m.isNotEmpty() && m != "gemini" }?.let { m -> " · $m" } ?: "")
+                setTextColor(Ui.text)
+                isChecked = result.optString("chat_provider") == p.getString("id")
+                setOnClickListener { settingsCall(org.json.JSONObject().put("action", "route").put("kind", "chat").put("choice", p.getString("id"))) { renderProviders(body, it) } }
+            })
+        }
+        body.addView(Ui.card(this).apply { addView(chat) }, Ui.matchWrap(8, this))
+
+        // Which service makes pictures
+        body.addView(Ui.text(this, "PICTURES", 12f, Ui.muted, bold = true), Ui.matchWrap(20, this))
+        val pictures = android.widget.RadioGroup(this)
+        val imageChoices = listOf("auto" to "Automatic (free first)") +
+            all.filter { "images" in kinds(it) && it.getBoolean("connected") }.map { it.getString("id") to it.getString("name") }
+        imageChoices.forEach { (id, name) ->
+            pictures.addView(android.widget.RadioButton(this).apply {
+                text = name
+                setTextColor(Ui.text)
+                isChecked = result.optString("image_provider") == id
+                setOnClickListener { settingsCall(org.json.JSONObject().put("action", "route").put("kind", "images").put("choice", id)) { renderProviders(body, it) } }
+            })
+        }
+        body.addView(Ui.card(this).apply { addView(pictures) }, Ui.matchWrap(8, this))
+
+        // Every provider, with its key
+        body.addView(Ui.text(this, "PROVIDERS", 12f, Ui.muted, bold = true), Ui.matchWrap(20, this))
+        all.forEach { p ->
+            val card = Ui.card(this)
+            card.addView(Ui.text(this, p.getString("name"), 16f, bold = true))
+            card.addView(Ui.text(this, p.optString("note"), 13f, Ui.muted), Ui.matchWrap(2, this))
+            val status = when {
+                p.optBoolean("no_key") -> "Free, no key needed"
+                p.optBoolean("own_key") -> "Connected · ••••" + p.optString("last4")
+                p.getBoolean("connected") -> "Connected (JARVIS's own key)"
+                else -> "Not set"
+            }
+            card.addView(Ui.text(this, status, 14f, if (p.getBoolean("connected")) Ui.green else Ui.muted), Ui.matchWrap(6, this))
+            if (!p.optBoolean("no_key")) {
+                val buttons = Ui.row(this)
+                buttons.addView(Ui.softButton(this, if (p.optBoolean("own_key")) "Change key" else "Add key") { addKey(body, p) })
+                if (p.optBoolean("own_key")) buttons.addView(Ui.softButton(this, "Remove") {
+                    settingsCall(org.json.JSONObject().put("action", "remove_key").put("provider", p.getString("id"))) { renderProviders(body, it) }
+                }.apply { (layoutParams as? LinearLayout.LayoutParams)?.marginStart = dp(8) })
+                buttons.addView(Ui.softButton(this, "Get a key") {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(p.getString("signup"))))
+                })
+                card.addView(buttons, Ui.matchWrap(8, this))
+            }
+            body.addView(card, Ui.matchWrap(8, this))
+        }
+    }
+
+    private fun addKey(body: LinearLayout, provider: org.json.JSONObject) {
+        val key = Ui.field(this, "Paste the API key").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        }
+        val extra = provider.optString("needs_extra").takeIf { it.isNotEmpty() }?.let { Ui.field(this, it) }
+        val form = Ui.column(this).apply {
+            setPadding(dp(22), dp(8), dp(22), 0)
+            addView(key)
+            extra?.let { addView(it, Ui.matchWrap(10, this@MainActivity)) }
+            addView(Ui.text(this@MainActivity, "JARVIS tests the key before saving it.", 13f, Ui.muted), Ui.matchWrap(8, this@MainActivity))
+        }
+        AlertDialog.Builder(this)
+            .setTitle(provider.getString("name"))
+            .setView(form)
+            .setPositiveButton("Test and save") { _, _ ->
+                val request = org.json.JSONObject().put("action", "save_key").put("provider", provider.getString("id"))
+                    .put("key", key.text.toString().trim()).put("extra", extra?.text?.toString()?.trim().orEmpty())
+                settingsCall(request) { renderProviders(body, it) }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -624,6 +802,7 @@ class MainActivity : Activity(), CloudLink.Listener {
         private const val VAULT_UNLOCK = 3
         private const val PICK_RESUME = 4
         private const val MEMORY_UNLOCK = 5
+        private const val PROVIDERS_UNLOCK = 6
 
         private val KIND_LABELS = mapOf(
             "person" to "PEOPLE", "place" to "PLACES", "project" to "PROJECTS", "goal" to "GOALS",
@@ -642,6 +821,8 @@ class MainActivity : Activity(), CloudLink.Listener {
             "phone_scroll" to "Scrolling", "phone_status" to "Checking the phone",
             "phone_fill_field" to "Filling in your details", "vault_list_fields" to "Checking your saved details",
             "vault_save_field" to "Saving a detail", "system_status" to "Checking the laptop",
+            "generate_image" to "Creating a picture", "get_weather" to "Checking the weather",
+            "phone_actions" to "Working on the phone", "phone_set_reminder" to "Setting a reminder",
         )
     }
 }

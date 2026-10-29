@@ -14,12 +14,15 @@ CONFIRM_TIMEOUT = 120  # seconds to answer an Allow/Deny prompt before it counts
 async def ask_brain(brain: Brain, brain_lock: asyncio.Lock, text: str, on_tool, ask_user) -> dict:
     """One question to the shared brain, with this chat's tool display and Allow/Deny
     prompts. Returns a "reply" or "error" event."""
+    from skills import images
+
     async with brain_lock:
         brain.on_tool = on_tool
         confirm.set_handler(ask_user)
+        images.take_pending()  # forget anything left from an earlier message
         try:
             reply = await run_in_threadpool(brain.ask, text)
-            return {"type": "reply", "text": reply, "model": brain.active_model}
+            return {"type": "reply", "text": reply, "model": brain.active_model, "images": images.take_pending()}
         except Exception as e:
             return {"type": "error", "text": str(e)}
         finally:

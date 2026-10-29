@@ -60,6 +60,8 @@ Behaviour:
 - Morning briefing: when asked for it, gather everything in parallel (get_weather for the
   user's city, phone_list_reminders, phone_status, system_status, find_jobs for their
   suggested roles) and answer in under 120 spoken words. Skip anything unavailable quietly.
+- Pictures: when asked to draw, design or imagine an image, use generate_image; the image is
+  shown with your reply, so just describe it briefly.
 - If a tool fails, say so honestly and suggest an alternative.
 
 Current date and time: {now}

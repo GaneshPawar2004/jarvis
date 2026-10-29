@@ -149,7 +149,8 @@ async def guard(request: Request, call_next):
     if request.headers.get("host") not in ALLOWED_HOSTS:  # blocks DNS-rebinding tricks
         return JSONResponse({"error": "unknown host"}, status_code=400)
     path = request.url.path
-    if path in PUBLIC_PATHS or await run_in_threadpool(_valid_session, request.cookies.get(COOKIE)):
+    if path in PUBLIC_PATHS or path.startswith("/api/image/") or \
+            await run_in_threadpool(_valid_session, request.cookies.get(COOKIE)):
         response = await call_next(request)
     elif path == "/":
         response = RedirectResponse("/login")
@@ -252,6 +253,25 @@ async def upload_resume(request: Request):
         "suggested_roles": profile.get("suggested_roles") or [],
         "vault_suggestions": resume.vault_suggestions(profile),
     }
+
+
+@app.get("/api/image/{image_id}")
+async def get_image(image_id: int, request: Request):
+    """A picture JARVIS made, for the app (device key) or the web page (login session)."""
+    from fastapi.responses import Response
+
+    from skills import images
+
+    header = request.headers.get("authorization", "")
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else None
+    allowed = (token and await run_in_threadpool(device_name, token)) or \
+        await run_in_threadpool(_valid_session, request.cookies.get(COOKIE))
+    if not allowed:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    found = await run_in_threadpool(images.image, image_id)
+    if not found:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return Response(content=found[1], media_type=found[0], headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/stats")
